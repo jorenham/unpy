@@ -202,6 +202,14 @@ def str_expr(value: str, /) -> cst.SimpleString:
     return cst.SimpleString(f"'{value}'")
 
 
+def kwarg_expr(key: str, value: cst.BaseExpression, /) -> cst.Arg:
+    return cst.Arg(
+        keyword=cst.Name(key),
+        value=value,
+        equal=cst.AssignEqual(cst.SimpleWhitespace(""), cst.SimpleWhitespace("")),
+    )
+
+
 def backport_type_param(  # noqa: C901
     type_param: cst.TypeParam,
     /,
@@ -214,6 +222,7 @@ def backport_type_param(  # noqa: C901
     name = param.name.value
 
     args = [cst.Arg(str_expr(name))]
+
     match param:
         case cst.TypeVar(_, bound):
             if infer_variance:
@@ -230,7 +239,7 @@ def backport_type_param(  # noqa: C901
             else:
                 variance = None
             if variance:
-                args.append(cst.Arg(bool_expr(True), cst.Name(variance)))
+                args.append(kwarg_expr(variance, bool_expr(True)))
 
             match bound:
                 case None | cst.Name("object"):
@@ -253,7 +262,7 @@ def backport_type_param(  # noqa: C901
                     pass
 
             if bound:
-                args.append(cst.Arg(bound, cst.Name("bound")))
+                args.append(kwarg_expr("bound", bound))
 
         case cst.TypeVarTuple(_) | cst.ParamSpec(_):
             bound = cst.Name("object")
@@ -267,7 +276,7 @@ def backport_type_param(  # noqa: C901
             pass
 
     if default:
-        args.append(cst.Arg(default, cst.Name("default")))
+        args.append(kwarg_expr("default", default))
 
     return cst.Assign(
         targets=[cst.AssignTarget(target=cst.Name(name))],
