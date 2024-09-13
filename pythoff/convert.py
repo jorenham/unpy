@@ -17,8 +17,8 @@ def convert(source: str, /, *, is_pyi: bool = True) -> str:
 
     import_transformer = TypingImportTransformer(
         cur_imports_typing=visitor.cur_imports_typing,
-        cur_imports_typing_extensions=visitor.cur_imports_typing_extensions,
         req_imports_typing=visitor.req_imports_typing,
+        cur_imports_typing_extensions=visitor.cur_imports_typing_extensions,
         req_imports_typing_extensions=visitor.req_imports_typing_extensions,
     )
     module_out = module_out.visit(import_transformer)

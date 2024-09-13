@@ -52,8 +52,8 @@ class PEP695Collector(cst.CSTVisitor):
 
     # TODO: `from {module} import {name} as {alias}`
     cur_imports_typing: set[str]
-    cur_imports_typing_extensions: set[str]
     req_imports_typing: set[str]
+    cur_imports_typing_extensions: set[str]
     req_imports_typing_extensions: set[str]
 
     def __init__(self, /, *, is_pyi: bool) -> None:
@@ -63,8 +63,8 @@ class PEP695Collector(cst.CSTVisitor):
         self.overloads = collections.defaultdict(int)
 
         self.cur_imports_typing = set()
-        self.cur_imports_typing_extensions = set()
         self.req_imports_typing = set()
+        self.cur_imports_typing_extensions = set()
         self.req_imports_typing_extensions = set()
 
         super().__init__()
@@ -116,6 +116,11 @@ class PEP695Collector(cst.CSTVisitor):
             self.type_params[key] = [
                 (p, _TypeParamScope.TYPE) for p in type_params.params
             ]
+
+            if any(p.default for p in type_params.params):
+                self.req_imports_typing_extensions.add("TypeVar")
+            else:
+                self.req_imports_typing.add("TypeVar")
 
             if len(type_params.params) > 1:
                 # TODO: only do this if the order differs between the LHS and RHS.
@@ -366,16 +371,11 @@ class TypeAliasTransformer(m.MatcherDecoratableTransformer):
 
 
 class TypingImportTransformer(m.MatcherDecoratableTransformer):
-    """
-    TODO:
-        - B
-    """
-
     _TYPING_MODULES: ClassVar = m.Name("typing") | m.Name("typing_extensions")
 
     _cur_typing: Final[frozenset[str]]
-    _cur_typing_extensions: Final[frozenset[str]]
     _req_typing: Final[frozenset[str]]
+    _cur_typing_extensions: Final[frozenset[str]]
     _req_typing_extensions: Final[frozenset[str]]
 
     def __init__(
@@ -387,9 +387,11 @@ class TypingImportTransformer(m.MatcherDecoratableTransformer):
         req_imports_typing_extensions: set[str],
     ) -> None:
         self._cur_typing = frozenset(cur_imports_typing)
-        self._cur_typing_extensions = frozenset(cur_imports_typing_extensions)
         self._req_typing = frozenset(req_imports_typing)
+        self._cur_typing_extensions = frozenset(cur_imports_typing_extensions)
         self._req_typing_extensions = frozenset(req_imports_typing_extensions)
+
+        print(self._add_typing_extensions)
 
         super().__init__()
 
