@@ -26,20 +26,17 @@ class PEP695Collector(cst.CSTVisitor):
     Collect all PEP-695 type-parameters in functions / classes / type-aliases.
 
     TODO:
-        - `type {name}[...] = ...`
+        - move `python>=3.12` imports from `typing` to `typing_extensions`
         - `def {name}[...]: ...`
             - global functions
             - inner functions (closures)
             - instance/class/static methods
         - `class {name}[...]: ...`
-        - `.py` only: detect/stringify forward references in `bounds=_` and `default=_`
         - detect `covariance` / `contravariance` (or use `infer_variance=True`)
             - implement `visit_Attribute` or `visit_AnnAssign` for attrs
             - inspect `FunctionDef.params.params.*annotation: *Annotation`
             - inspect `FunctionDef.returns: Annotation`
-        - move `python>=3.12` imports from `typing` to `typing_extensions`
-        - in case of `import typing[ as _]` or `import typing_extensions[ as _]`, use
-            those later on.
+        - in case of `import typing` or `import typing_extensions`; use those later on.
         - detect existing typevar-likes
     """
 
@@ -214,7 +211,7 @@ def kwarg_expr(key: str, value: cst.BaseExpression, /) -> cst.Arg:
     )
 
 
-def backport_type_param(  # noqa: C901
+def backport_type_param(
     type_param: cst.TypeParam,
     /,
     *,
@@ -371,15 +368,15 @@ class TypeAliasTransformer(m.MatcherDecoratableTransformer):
 class TypingImportTransformer(m.MatcherDecoratableTransformer):
     """
     TODO:
-        - add a new `ImportFrom` if `from typing[_extensions] import ...` doesn't exist
+        - B
     """
 
     _TYPING_MODULES: ClassVar = m.Name("typing") | m.Name("typing_extensions")
 
-    cur_imports_typing: Final[frozenset[str]]
-    cur_imports_typing_extensions: Final[frozenset[str]]
-    req_imports_typing: Final[frozenset[str]]
-    req_imports_typing_extensions: Final[frozenset[str]]
+    _cur_typing: Final[frozenset[str]]
+    _cur_typing_extensions: Final[frozenset[str]]
+    _req_typing: Final[frozenset[str]]
+    _req_typing_extensions: Final[frozenset[str]]
 
     def __init__(
         self,
@@ -389,10 +386,10 @@ class TypingImportTransformer(m.MatcherDecoratableTransformer):
         req_imports_typing: set[str],
         req_imports_typing_extensions: set[str],
     ) -> None:
-        self.cur_imports_typing = frozenset(cur_imports_typing)
-        self.cur_imports_typing_extensions = frozenset(cur_imports_typing_extensions)
-        self.req_imports_typing = frozenset(req_imports_typing)
-        self.req_imports_typing_extensions = frozenset(req_imports_typing_extensions)
+        self._cur_typing = frozenset(cur_imports_typing)
+        self._cur_typing_extensions = frozenset(cur_imports_typing_extensions)
+        self._req_typing = frozenset(req_imports_typing)
+        self._req_typing_extensions = frozenset(req_imports_typing_extensions)
 
         super().__init__()
 
@@ -402,25 +399,19 @@ class TypingImportTransformer(m.MatcherDecoratableTransformer):
         The current `typing` imports that should be imported from `typing_extensions`
         instead.
         """
-        return self.cur_imports_typing & self.req_imports_typing_extensions
+        return self._cur_typing & self._req_typing_extensions
 
     @property
     def _add_typing(self) -> frozenset[str]:
         """The `typing` imports that are missing."""
-        return (
-            self.req_imports_typing
-            - self.cur_imports_typing
-            - self.req_imports_typing_extensions
-        )
+        return self._req_typing - self._cur_typing - self._req_typing_extensions
 
     @property
     def _add_typing_extensions(self) -> frozenset[str]:
         """The `typing_extensions` imports that are missing."""
-        return self.req_imports_typing_extensions - self.cur_imports_typing_extensions
+        return self._req_typing_extensions - self._cur_typing_extensions
 
-    @m.call_if_inside(
-        m.SimpleStatementLine([m.OneOf(m.ImportFrom(_TYPING_MODULES))]),
-    )
+    @m.call_if_inside(m.SimpleStatementLine([m.OneOf(m.ImportFrom(_TYPING_MODULES))]))
     @m.leave(m.ImportFrom(_TYPING_MODULES))
     def update_typing_import(
         self,
@@ -449,3 +440,91 @@ class TypingImportTransformer(m.MatcherDecoratableTransformer):
         aliases_new.sort(key=lambda a: cast(str, a.name.value))
 
         return updated_node.with_changes(names=aliases_new)
+
+    @override
+    def leave_Module(
+        self,
+        /,
+        original_node: cst.Module,
+        updated_node: cst.Module,
+    ) -> cst.Module:
+        new_statements: list[cst.SimpleStatementLine] = []
+
+        if not self._cur_typing and self._req_typing:
+            new_statements.append(
+                cst.SimpleStatementLine([
+                    cst.ImportFrom(
+                        cst.Name("typing"),
+                        [cst.ImportAlias(cst.Name(n)) for n in self._add_typing],
+                    ),
+                ]),
+            )
+
+        if not self._cur_typing_extensions and self._add_typing_extensions:
+            new_statements.append(
+                cst.SimpleStatementLine([
+                    cst.ImportFrom(
+                        cst.Name("typing_extensions"),
+                        [
+                            cst.ImportAlias(cst.Name(n))
+                            for n in self._add_typing_extensions
+                        ],
+                    ),
+                ]),
+            )
+
+        if not new_statements:
+            return updated_node
+
+        i_insert = self._new_import_statement_index(updated_node)
+
+        # NOTE: newlines and other formatting won't be done here; use e.g. ruff instead
+        return updated_node.with_changes(
+            body=[
+                *updated_node.body[:i_insert],
+                *new_statements,
+                *updated_node.body[i_insert:],
+            ],
+        )
+
+    @staticmethod
+    def _new_import_statement_index(module_node: cst.Module) -> int:
+        # find the first import statement in the module body
+        i_insert = 0
+        illegal_direct_imports = frozenset({"typing", "typing_extensions"})
+        for i, statement in enumerate(module_node.body):
+            if not isinstance(statement, cst.SimpleStatementLine):
+                continue
+
+            for node in statement.body:
+                if not isinstance(node, cst.Import | cst.ImportFrom):
+                    continue
+
+                _done = False
+                if isinstance(node, cst.Import):
+                    if any(a.name.value in illegal_direct_imports for a in node.names):
+                        raise NotImplementedError("import typing[_extensions]")
+                    # insert after all `import ...` statements
+                    i_insert = i + 1
+                else:
+                    if node.relative:
+                        # insert before the first relative import
+                        return i
+
+                    match node.module:
+                        case cst.Name("typing"):
+                            # insert the (`typing_extensions`) import after `typing`
+                            return i + 1
+                        case cst.Name("typing_extensions"):
+                            # insert the (`typing`) import before `typing_extensions`
+                            return i
+                        case cst.Name(name):
+                            # otherwise, assume alphabetically sorted on module, and
+                            # and insert to maintain the order
+                            if name > "typing_extensions":
+                                return i
+
+                            i_insert = i + 1
+                        case _:
+                            continue
+        return i_insert
