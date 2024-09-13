@@ -117,10 +117,12 @@ class PEP695Collector(cst.CSTVisitor):
                 (p, _TypeParamScope.TYPE) for p in type_params.params
             ]
 
-            if any(p.default for p in type_params.params):
-                self.req_imports_typing_extensions.add("TypeVar")
-            else:
-                self.req_imports_typing.add("TypeVar")
+            for p in type_params.params:
+                name = type(p.param).__name__
+                if p.default:
+                    self.req_imports_typing_extensions.add(name)
+                else:
+                    self.req_imports_typing.add(name)
 
             if len(type_params.params) > 1:
                 # TODO: only do this if the order differs between the LHS and RHS.
