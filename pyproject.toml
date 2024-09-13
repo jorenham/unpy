@@ -28,6 +28,7 @@ classifiers = [
 dependencies = [
     "mainpy>=1.4.0,<2",
     "libcst>=1.4.0,<2",
+    "typer-slim>=0.12.5,<1",
 ]
 
 [project.urls]
@@ -38,7 +39,7 @@ Changelog = "https://github.com/jorenham/pythoff/releases"
 Funding = "https://github.com/sponsors/jorenham"
 
 [project.scripts]
-pythoff = "pythoff:main"
+pythoff = "pythoff.cli:app"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
