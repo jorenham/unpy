@@ -1,13 +1,15 @@
 import collections
 import enum
-from collections.abc import Mapping
-from typing import Final, cast, override
+from collections.abc import Callable, Sequence
+from typing import ClassVar, Final, cast, override
 
 import libcst as cst
-from libcst.metadata import ParentNodeProvider
+import libcst.matchers as m
+
+type _TypeParamDict = dict[tuple[str, ...], list[tuple[cst.TypeParam, _TypeParamScope]]]
 
 
-class ScopeKind(enum.IntEnum):
+class _TypeParamScope(enum.IntEnum):
     # TODO: `MODULE = 0`  (e.g. `T = TypeVar("T, ...)`)
 
     TYPE = 1  # type alias type
@@ -47,7 +49,7 @@ class PEP695Collector(cst.CSTVisitor):
 
     is_pyi: Final[bool]
     # [(name, ...)] -> (type_params, infer_variance)
-    type_params: dict[tuple[str, ...], list[tuple[cst.TypeParam, ScopeKind]]]
+    type_params: _TypeParamDict
     # [(name, ...) -> count]
     overloads: dict[tuple[str, ...], int]
 
@@ -114,7 +116,9 @@ class PEP695Collector(cst.CSTVisitor):
             key = (node.name.value,)
             assert key not in self.type_params
 
-            self.type_params[key] = [(p, ScopeKind.TYPE) for p in type_params.params]
+            self.type_params[key] = [
+                (p, _TypeParamScope.TYPE) for p in type_params.params
+            ]
 
             if len(type_params.params) > 1:
                 # TODO: only do this if the order differs between the LHS and RHS.
@@ -138,13 +142,13 @@ class PEP695Collector(cst.CSTVisitor):
         assert key not in self.type_params
 
         # TODO: detect if this is a protocol
-        # TODO: extact old-style `Generic[T]` and `Protocol[T]` generic type params
+        # TODO: extract old-style `Generic[T]` and `Protocol[T]` generic type params
 
         if not (type_params := node.type_parameters):
             self.type_params[key] = []
             return
 
-        self.type_params[key] = [(p, ScopeKind.CLASS) for p in type_params.params]
+        self.type_params[key] = [(p, _TypeParamScope.CLASS) for p in type_params.params]
         # infer_variance requires typing_extensions
         self.req_imports_typing_extensions.update(
             type(p.param).__name__ for p in type_params.params
@@ -160,7 +164,7 @@ class PEP695Collector(cst.CSTVisitor):
         stack = self._stack
         stack.append(node.name.value)
 
-        kind = ScopeKind.DEF
+        kind = _TypeParamScope.DEF
 
         if type_params := node.type_parameters:
             key = tuple(stack)
@@ -172,7 +176,7 @@ class PEP695Collector(cst.CSTVisitor):
                 for decorator in node.decorators:
                     match decorator.decorator:
                         case cst.Name("overload"):
-                            kind = ScopeKind.DEF_OVERLOAD
+                            kind = _TypeParamScope.DEF_OVERLOAD
                             break
                         case _:
                             pass
@@ -185,7 +189,7 @@ class PEP695Collector(cst.CSTVisitor):
                 self.req_imports_typing_extensions.update(import_names)
 
         # stubs don't define function bodies
-        return False if kind is ScopeKind.DEF_OVERLOAD or self.is_pyi else None
+        return False if kind is _TypeParamScope.DEF_OVERLOAD or self.is_pyi else None
 
     @override
     def leave_FunctionDef(self, /, original_node: cst.FunctionDef) -> None:
@@ -284,100 +288,35 @@ def backport_type_param(  # noqa: C901
     )
 
 
-class PEP695Transformer(cst.CSTTransformer):
-    """
-    Backports PEP 695 (`python>=3.12`) syntax to be compatible with `python>=3.11<3.12`.
+def _workaround_libcst_runtime_typecheck_bug[F: Callable[..., object]](f: F, /) -> F:
+    # LibCST crashes if `cst.SimpleStatementLine` is included in the return type
+    # annotation.
+    # This works around this bug by hiding the return type annation at runtime.
+    del f.__annotations__["return"]
+    return f
 
-    - TODO: Adds global `TypeVar`, `TypeVarTuple`, and `ParamSpec` assignments
-        - TODO: User-configurable placement (top of the file / near the first reference)
-        - TODO: Uses `infer_variance=True` for class-scoped type params
-        - TODO: Import `TypeVar[Tuple]` and / or `ParamSpec` from `typing_extensions`
-    - TODO: Replaces `type {} = ...` type-aliases with `{}: TypeAlias = ...`
-        - TODO: Use `TypeAliasType` if the LHS/RHS type-param have a different order
-    - Strip PEP 695 type-param signatures from generic functions and classes
-    - TODO: Rename `T@Spam` to `_T__Spam` (use `visit_Annotation`)
-    - TODO: Covariance and contravariance
-    - TODO: bounds
-    - TODO: constraints
-    - TODO: Backport PEP-646 variadic generic (`python>=3.11`) with `Unpack[]`
-    - TODO: Backport PEP-696 type parameter defaults (`python>=3.13`) with `default=`
-    """
 
-    METADATA_DEPENDENCIES = (ParentNodeProvider,)
+# class TypeAliasTransformer(cst.CSTTransformer):
+class TypeAliasTransformer(m.MatcherDecoratableTransformer):
+    type_params: Final[_TypeParamDict]
 
-    stack: collections.deque[str]
-
-    is_pyi: Final[bool]
-    type_params: Final[Mapping[tuple[str, ...], list[tuple[cst.TypeParam, ScopeKind]]]]
-    cur_imports_typing: Final[frozenset[str]]
-    cur_imports_typing_extensions: Final[frozenset[str]]
-    req_imports_typing: Final[frozenset[str]]
-    req_imports_typing_extensions: Final[frozenset[str]]
-
-    def __init__(
-        self,
-        /,
-        *,
-        is_pyi: bool,
-        type_params: dict[tuple[str, ...], list[tuple[cst.TypeParam, ScopeKind]]],
-        cur_imports_typing: set[str],
-        cur_imports_typing_extensions: set[str],
-        req_imports_typing: set[str],
-        req_imports_typing_extensions: set[str],
-    ) -> None:
-        self.stack = collections.deque()
-
-        self.is_pyi = is_pyi
+    def __init__(self, /, *, type_params: _TypeParamDict) -> None:
         self.type_params = type_params
-        self.cur_imports_typing = frozenset(cur_imports_typing)
-        self.cur_imports_typing_extensions = frozenset(cur_imports_typing_extensions)
-        self.req_imports_typing = frozenset(req_imports_typing)
-        self.req_imports_typing_extensions = frozenset(req_imports_typing_extensions)
-
         super().__init__()
 
-    @property
-    def has_imports_typing(self) -> bool:
-        return bool(self.cur_imports_typing)
-
-    @property
-    def has_imports_typing_extensions(self) -> bool:
-        return bool(self.cur_imports_typing)
-
-    @property
-    def old_imports_typing(self) -> frozenset[str]:
-        """The `typing` imports that should be imported from `typing_extensions`."""
-        return self.req_imports_typing_extensions & self.cur_imports_typing
-
-    @property
-    def new_imports_typing(self) -> frozenset[str]:
-        """The currently missing `typing` imports that should be added."""
-        return (
-            self.req_imports_typing
-            - self.cur_imports_typing
-            - self.req_imports_typing_extensions
-        )
-
-    @property
-    def new_imports_typing_extensions(self) -> frozenset[str]:
-        """The currently missing `typing_extensions` imports that should be added."""
-        return self.req_imports_typing_extensions - self.cur_imports_typing_extensions
-
-    @override
-    def leave_SimpleStatementLine(
+    @m.call_if_inside(m.Module([m.ZeroOrMore(m.SimpleStatementLine())]))
+    @m.leave(m.SimpleStatementLine([m.TypeAlias()]))
+    @_workaround_libcst_runtime_typecheck_bug
+    def desugar_type_alias(
         self,
         /,
-        original_node: cst.SimpleStatementLine,
+        _: cst.SimpleStatementLine,
         updated_node: cst.SimpleStatementLine,
     ) -> cst.SimpleStatementLine | cst.FlattenSentinel[cst.SimpleStatementLine]:
-        if not any(isinstance(child, cst.TypeAlias) for child in updated_node.body):
-            return updated_node
-
         assert len(updated_node.body) == 1
         type_alias_original = cast(cst.TypeAlias, updated_node.body[0])
         name = type_alias_original.name
 
-        # type_params = updated_node.type_parameters
         type_params = self.type_params[name.value,]
 
         if type_params and len(type_params) > 1:
@@ -397,7 +336,7 @@ class PEP695Transformer(cst.CSTTransformer):
             )
 
         typevars = [
-            backport_type_param(param, infer_variance=scope == ScopeKind.CLASS)
+            backport_type_param(param, infer_variance=scope == _TypeParamScope.CLASS)
             for param, scope in type_params
         ]
         if not typevars:
@@ -428,7 +367,85 @@ class PEP695Transformer(cst.CSTTransformer):
 
         return cst.FlattenSentinel(lines)
 
-    # TODO: imports
-    # TODO: classes
-    # TODO: functions
-    # TODO inner classes / inner functions
+
+class TypingImportTransformer(m.MatcherDecoratableTransformer):
+    """
+    TODO:
+        - add a new `ImportFrom` if `from typing[_extensions] import ...` doesn't exist
+    """
+
+    _TYPING_MODULES: ClassVar = m.Name("typing") | m.Name("typing_extensions")
+
+    cur_imports_typing: Final[frozenset[str]]
+    cur_imports_typing_extensions: Final[frozenset[str]]
+    req_imports_typing: Final[frozenset[str]]
+    req_imports_typing_extensions: Final[frozenset[str]]
+
+    def __init__(
+        self,
+        /,
+        cur_imports_typing: set[str],
+        cur_imports_typing_extensions: set[str],
+        req_imports_typing: set[str],
+        req_imports_typing_extensions: set[str],
+    ) -> None:
+        self.cur_imports_typing = frozenset(cur_imports_typing)
+        self.cur_imports_typing_extensions = frozenset(cur_imports_typing_extensions)
+        self.req_imports_typing = frozenset(req_imports_typing)
+        self.req_imports_typing_extensions = frozenset(req_imports_typing_extensions)
+
+        super().__init__()
+
+    @property
+    def _del_typing(self) -> frozenset[str]:
+        """
+        The current `typing` imports that should be imported from `typing_extensions`
+        instead.
+        """
+        return self.cur_imports_typing & self.req_imports_typing_extensions
+
+    @property
+    def _add_typing(self) -> frozenset[str]:
+        """The `typing` imports that are missing."""
+        return (
+            self.req_imports_typing
+            - self.cur_imports_typing
+            - self.req_imports_typing_extensions
+        )
+
+    @property
+    def _add_typing_extensions(self) -> frozenset[str]:
+        """The `typing_extensions` imports that are missing."""
+        return self.req_imports_typing_extensions - self.cur_imports_typing_extensions
+
+    @m.call_if_inside(
+        m.SimpleStatementLine([m.OneOf(m.ImportFrom(_TYPING_MODULES))]),
+    )
+    @m.leave(m.ImportFrom(_TYPING_MODULES))
+    def update_typing_import(
+        self,
+        /,
+        _: cst.ImportFrom,
+        updated_node: cst.ImportFrom,
+    ) -> cst.ImportFrom:
+        module = cst.ensure_type(updated_node.module, cst.Name).value
+
+        aliases = cast(Sequence[cst.ImportAlias], updated_node.names)
+
+        names_del: frozenset[str]
+        if module == "typing":
+            names_del = self._del_typing
+            names_add = self._add_typing
+        else:
+            assert module == "typing_extensions"
+            names_del = frozenset()
+            names_add = self._add_typing_extensions
+
+        if not names_del and not names_add:
+            return updated_node
+
+        aliases_new = [a for a in aliases if a.name.value not in names_del]
+        aliases_new.extend(cst.ImportAlias(cst.Name(name)) for name in names_add)
+        aliases_new.sort(key=lambda a: cast(str, a.name.value))
+
+        return updated_node.with_changes(names=aliases_new)
