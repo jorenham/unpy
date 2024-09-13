@@ -391,8 +391,6 @@ class TypingImportTransformer(m.MatcherDecoratableTransformer):
         self._cur_typing_extensions = frozenset(cur_imports_typing_extensions)
         self._req_typing_extensions = frozenset(req_imports_typing_extensions)
 
-        print(self._add_typing_extensions)
-
         super().__init__()
 
     @property
