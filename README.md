@@ -1,58 +1,58 @@
-<h1 align="center">pythoff</h1>
+<h1 align="center">unpy</h1>
 
 <p align="center">
     Backports Python 3.13 typing stubs to earlier Python versions
 </p>
 
 <p align="center">
-    <a href="https://pypi.org/project/pythoff/">
+    <a href="https://pypi.org/project/unpy/">
         <img
-            alt="pythoff - PyPI"
-            src="https://img.shields.io/pypi/v/pythoff?style=flat&color=olive"
+            alt="unpy - PyPI"
+            src="https://img.shields.io/pypi/v/unpy?style=flat&color=olive"
         />
     </a>
-    <a href="https://github.com/jorenham/pythoff">
+    <a href="https://github.com/jorenham/unpy">
         <img
-            alt="pythoff - Python Versions"
-            src="https://img.shields.io/pypi/pyversions/pythoff?style=flat"
+            alt="unpy - Python Versions"
+            src="https://img.shields.io/pypi/pyversions/unpy?style=flat"
         />
     </a>
-    <a href="https://github.com/jorenham/pythoff">
+    <a href="https://github.com/jorenham/unpy">
         <img
-            alt="pythoff - license"
-            src="https://img.shields.io/github/license/jorenham/pythoff?style=flat"
+            alt="unpy - license"
+            src="https://img.shields.io/github/license/jorenham/unpy?style=flat"
         />
     </a>
 </p>
 <p align="center">
-    <a href="https://github.com/jorenham/pythoff/actions?query=workflow%3ACI">
+    <a href="https://github.com/jorenham/unpy/actions?query=workflow%3ACI">
         <img
-            alt="pythoff - CI"
-            src="https://github.com/jorenham/pythoff/workflows/CI/badge.svg"
+            alt="unpy - CI"
+            src="https://github.com/jorenham/unpy/workflows/CI/badge.svg"
         />
     </a>
     <!-- TODO -->
     <a href="https://github.com/pre-commit/pre-commit">
         <img
-            alt="pythoff - pre-commit"
+            alt="unpy - pre-commit"
             src="https://img.shields.io/badge/pre--commit-enabled-teal?logo=pre-commit"
         />
     </a>
     <!-- <a href="https://github.com/KotlinIsland/basedmypy">
         <img
-            alt="pythoff - basedmypy"
+            alt="unpy - basedmypy"
             src="https://img.shields.io/badge/basedmypy-checked-fd9002"
         />
     </a> -->
     <a href="https://detachhead.github.io/basedpyright">
         <img
-            alt="pythoff - basedpyright"
+            alt="unpy - basedpyright"
             src="https://img.shields.io/badge/basedpyright-checked-42b983"
         />
     </a>
     <a href="https://github.com/astral-sh/ruff">
         <img
-            alt="pythoff - ruff"
+            alt="unpy - ruff"
             src="https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json"
         />
     </a>
@@ -66,16 +66,16 @@
 >
 ## Installation
 
-The `pythoff` package is available as on PyPI, and can be installed with e.g.
+The `unpy` package is available as on PyPI, and can be installed with e.g.
 
 ```shell
-pip install pythoff
+pip install unpy
 ```
 
 ## Usage
 
 ```plain
-Usage: pythoff [OPTIONS] FILE_IN [FILE_OUT]
+Usage: unpy [OPTIONS] FILE_IN [FILE_OUT]
 
 Arguments:
   FILE_IN     [required]
