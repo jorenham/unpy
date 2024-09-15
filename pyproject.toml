@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "pythoff"
 version = "0.1.0"
-description = "Python 3.12+ stub backporter"
+description = "Backports Python Typing Stubs"
 readme = "README.md"
 license = "BSD-3-Clause"
 requires-python = ">=3.12"
@@ -26,8 +26,8 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "mainpy>=1.4.0,<2",
     "libcst>=1.4.0,<2",
+    "mainpy>=1.4.0,<2",
     "typer-slim>=0.12.5,<1",
 ]
 
@@ -43,14 +43,21 @@ pythoff = "pythoff.cli:app"
 
 [tool.hatch.build.targets.sdist]
 exclude = [
+    "/dist",
+    "/examples",
+    "/tests",
     "/.cache",
     "/.github",
+    "/.mypy_cache",
+    "/.pytest_cache",
+    "/.ruff_cache",
+    "/.tox",
     "/.venv",
     "/.vscode",
     ".editorconfig",
     ".gitignore",
     ".mardownlint.yaml",
-    ".pre-commit.yaml",
+    ".pre-commit-config.yaml",
     ".python-version",
     "README.md",
     "uv.lock",
@@ -64,6 +71,7 @@ dev-dependencies = [
   "basedpyright>=1.17.4,<2",
   "codespell>=2.3.0,<3",
   "pre-commit>=3.8.0",
+  "pytest>=8.3.3,<9",
   "ruff>=0.6.5,<0.7",
 ]
 
@@ -76,6 +84,14 @@ venv = ".venv"
 venvPath = "."
 stubPath = "."
 typeCheckingMode = "all"
+
+[tool.pytest.ini_options]
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+filterwarnings = ["error"]
+log_cli_level = "INFO"
+minversion = "8.3"
+testpaths = ["tests"]
+xfail_strict = true
 
 [tool.ruff]
 force-exclude = true
