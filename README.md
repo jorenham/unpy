@@ -60,7 +60,7 @@
 
 ---
 
-> ![IMPORTANT]
+> [!IMPORTANT]
 > This project is in the early stages of development;
 > You probably shouldn't use it in production.
 >
