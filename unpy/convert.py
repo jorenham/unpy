@@ -1,15 +1,9 @@
 import libcst as cst
 
-from ._pep695 import PEP695Collector, TypeAliasTransformer, TypingImportTransformer
+from ._py311 import transform as transform_py311
 
 __all__ = ("convert",)
 
 
 def convert(source: str, /) -> str:
-    return (
-        cst.parse_module(source)
-        .visit(collector := PEP695Collector())
-        .visit(TypeAliasTransformer.from_collector(collector))
-        .visit(TypingImportTransformer.from_collector(collector))
-        .code
-    )
+    return transform_py311(cst.parse_module(source)).code
