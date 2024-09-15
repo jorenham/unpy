@@ -93,18 +93,18 @@ Options:
 ## Features / Wishlist
 
 - [x] Remove redundant `Any` and `object` type-parameter bounds
-- [ ] Replace `Any` type-parameter defaults with the upper-bound or `object`
+- [x] Replace `Any` type-parameter defaults with the upper-bound or `object`
 - [ ] Replace `collections.abc` and `typing` imports with `typing_extensions` backports.
 - [x] Add additional `typing[_extensions]` imports for e.g. `TypeVar` and `TypeAlias`.
 - [x] Backport PEP-695 `type {}` aliases to `{}: TypeAlias` (or use
 `{} = TypeAliasType('{}', ...)`) if the LHS and RHS order differs).
-- [ ] Backport PEP-695 classes and protocols to `Generic` and `Protocol`
-- [ ] Backport PEP-695 generic functions
+- [x] Backport PEP-695 classes and protocols to `Generic` and `Protocol`
+- [x] Backport PEP-695 generic functions
 - [x] Transform PEP-696 `T = {}` type param defaults to `TypeVar("T", default={})`.
 - [ ] Rename / de-duplicate typevar-like definitions
 - [ ] Infer variance of (all) `Generic` and `Protocol` type params (currently
 `infer_variance=True` is used if there's no `{}_co` or `{}_contra` suffix)
 - [ ] Transform `*Ts` to `Unpack[Ts]` (`TypeVarTuple`)
-- [ ] Transform `**Tss` to `Tss` (`ParamSpec`)
+- [x] Transform `**Tss` to `Tss` (`ParamSpec`)
 - [ ] Reuse e.g. `import typing` or `import typing as tp` if present
 - [ ] Detect re-exported imports from `typing` or `typing_extensions` of other modules

@@ -1,204 +1,15 @@
 import collections
-import enum
-from collections.abc import Callable, Sequence
-from typing import ClassVar, Final, cast, override
+from collections.abc import Callable
+from typing import ClassVar, Final, Literal, LiteralString, Self, cast, override
 
 import libcst as cst
 import libcst.matchers as m
 
-type _TypeParamDict = dict[tuple[str, ...], list[tuple[cst.TypeParam, _TypeParamScope]]]
+type _TypingModule = Literal["typing", "typing_extensions"]
+type _AnyDef = cst.ClassDef | cst.FunctionDef
+type _NodeFlat[N: cst.CSTNode, FN: cst.CSTNode = N] = N | cst.FlattenSentinel[FN]  # noqa: E251
 
-
-class _TypeParamScope(enum.IntEnum):
-    # TODO: `MODULE = 0`  (e.g. `T = TypeVar("T, ...)`)
-
-    TYPE = 1  # type alias type
-
-    CLASS = 2
-    # TODO: `PROTOCOL = 3` (i.e. has `typing[_extensions].Protocol` as a base class)
-
-    DEF = 4
-    DEF_OVERLOAD = 5
-
-
-class PEP695Collector(cst.CSTVisitor):
-    """
-    Collect all PEP-695 type-parameters in functions / classes / type-aliases.
-
-    TODO:
-        - move `python>=3.12` imports from `typing` to `typing_extensions`
-        - `def {name}[...]: ...`
-            - global functions
-            - inner functions (closures)
-            - instance/class/static methods
-        - `class {name}[...]: ...`
-        - detect `covariance` / `contravariance` (or use `infer_variance=True`)
-            - implement `visit_Attribute` or `visit_AnnAssign` for attrs
-            - inspect `FunctionDef.params.params.*annotation: *Annotation`
-            - inspect `FunctionDef.returns: Annotation`
-        - in case of `import typing` or `import typing_extensions`; use those later on.
-        - detect existing typevar-likes
-    """
-
-    METADATA_DEPENDENCIES = ()
-
-    _stack: collections.deque[str]
-
-    is_pyi: Final[bool]
-    # [(name, ...)] -> (type_params, infer_variance)
-    type_params: _TypeParamDict
-    # [(name, ...) -> count]
-    overloads: dict[tuple[str, ...], int]
-
-    # TODO: `from {module} import {name} as {alias}`
-    cur_imports_typing: set[str]
-    req_imports_typing: set[str]
-    cur_imports_typing_extensions: set[str]
-    req_imports_typing_extensions: set[str]
-
-    def __init__(self, /, *, is_pyi: bool) -> None:
-        self.is_pyi = is_pyi
-        self._stack = collections.deque()
-        self.type_params = collections.defaultdict(list)
-        self.overloads = collections.defaultdict(int)
-
-        self.cur_imports_typing = set()
-        self.req_imports_typing = set()
-        self.cur_imports_typing_extensions = set()
-        self.req_imports_typing_extensions = set()
-
-        super().__init__()
-
-    @override
-    def visit_ImportFrom(self, /, node: cst.ImportFrom) -> bool | None:
-        if node.relative or not (module := node.module):
-            return False
-
-        from_ = module.value
-        if from_ not in {"typing", "typing_extensions"}:
-            return False
-
-        if isinstance(node.names, cst.ImportStar):
-            raise NotImplementedError(f"from {from_} import *")
-
-        imported: set[str] = set()
-        for alias in node.names:
-            name = alias.name.value
-            assert isinstance(name, str)
-
-            if alias.asname:
-                # `from _ import {a} as {b}` is no problem if `{a} == {b}`
-                as_ = getattr(alias.asname.name, "value", None)
-                assert as_
-                if as_ != name:
-                    raise NotImplementedError(f"from {from_} import _ as _")
-
-            imported.add(name)
-
-        if from_ == "typing":
-            self.cur_imports_typing.update(imported)
-        else:
-            self.cur_imports_typing_extensions.update(imported)
-
-        return False
-
-    @override
-    def visit_TypeAlias(self, /, node: cst.TypeAlias) -> bool | None:
-        # no need to push to the stack
-
-        imported = False
-        if type_params := node.type_parameters:
-            assert not self._stack
-
-            key = (node.name.value,)
-            assert key not in self.type_params
-
-            self.type_params[key] = [
-                (p, _TypeParamScope.TYPE) for p in type_params.params
-            ]
-
-            for p in type_params.params:
-                name = type(p.param).__name__
-                if p.default:
-                    self.req_imports_typing_extensions.add(name)
-                else:
-                    self.req_imports_typing.add(name)
-
-            if len(type_params.params) > 1:
-                # TODO: only do this if the order differs between the LHS and RHS.
-                self.req_imports_typing_extensions.add("TypeAliasType")
-                imported = True
-                return False
-
-        if not imported:
-            self.req_imports_typing.add("TypeAlias")
-
-        # no need to traverse the body
-        # TODO: traverse and check the usage order of the type-parameters
-        return False
-
-    @override
-    def visit_ClassDef(self, /, node: cst.ClassDef) -> bool | None:
-        stack = self._stack
-        stack.append(node.name.value)
-
-        key = tuple(stack)
-        assert key not in self.type_params
-
-        # TODO: detect if this is a protocol
-        # TODO: extract old-style `Generic[T]` and `Protocol[T]` generic type params
-
-        if not (type_params := node.type_parameters):
-            self.type_params[key] = []
-            return
-
-        self.type_params[key] = [(p, _TypeParamScope.CLASS) for p in type_params.params]
-        # infer_variance requires typing_extensions
-        self.req_imports_typing_extensions.update(
-            type(p.param).__name__ for p in type_params.params
-        )
-
-    @override
-    def leave_ClassDef(self, /, original_node: cst.ClassDef) -> None:
-        name = self._stack.pop()
-        assert name == original_node.name.value
-
-    @override
-    def visit_FunctionDef(self, /, node: cst.FunctionDef) -> bool | None:
-        stack = self._stack
-        stack.append(node.name.value)
-
-        kind = _TypeParamScope.DEF
-
-        if type_params := node.type_parameters:
-            key = tuple(stack)
-
-            if node.decorators and (
-                "overload" in self.cur_imports_typing
-                or "overload" in self.cur_imports_typing_extensions
-            ):
-                for decorator in node.decorators:
-                    match decorator.decorator:
-                        case cst.Name("overload"):
-                            kind = _TypeParamScope.DEF_OVERLOAD
-                            break
-                        case _:
-                            pass
-
-            self.type_params[key] += [(p, kind) for p in type_params.params]
-            import_names = (type(p.param).__name__ for p in type_params.params)
-            if any(p.default for p in type_params.params):
-                self.req_imports_typing.update(import_names)
-            else:
-                self.req_imports_typing_extensions.update(import_names)
-
-        # stubs don't define function bodies
-        return False if kind is _TypeParamScope.DEF_OVERLOAD or self.is_pyi else None
-
-    @override
-    def leave_FunctionDef(self, /, original_node: cst.FunctionDef) -> None:
-        name = self._stack.pop()
-        assert name == original_node.name.value
+_TYPING_MODULES: Final = "typing", "typing_extensions"
 
 
 def bool_expr(value: bool, /) -> cst.Name:
@@ -218,54 +29,94 @@ def kwarg_expr(key: str, value: cst.BaseExpression, /) -> cst.Arg:
     )
 
 
-def backport_type_param(
-    type_param: cst.TypeParam,
-    /,
-    *,
-    contravariant: bool = False,
-    covariant: bool = False,
-    infer_variance: bool = False,
-) -> cst.Assign:
-    param = type_param.param
+def _backport_type_alias(
+    node: cst.SimpleStatementLine,
+) -> cst.SimpleStatementLine | cst.FlattenSentinel[cst.SimpleStatementLine]:
+    assert len(node.body) == 1
+    type_alias_original = cast(cst.TypeAlias, node.body[0])
+    name = type_alias_original.name
+
+    type_parameters = type_alias_original.type_parameters
+    type_params = type_parameters.params if type_parameters else ()
+
+    if len(type_params) > 1:
+        # TODO: only do this if the order differs between the LHS and RHS.
+        type_alias_updated = cst.Assign(
+            [cst.AssignTarget(name)],
+            cst.Call(
+                cst.Name("TypeAliasType"),
+                [cst.Arg(str_expr(name.value)), cst.Arg(type_alias_original.value)],
+            ),
+        )
+    else:
+        type_alias_updated = cst.AnnAssign(
+            target=name,
+            annotation=cst.Annotation(cst.Name("TypeAlias")),
+            value=type_alias_original.value,
+        )
+
+    if not type_params:
+        return cst.SimpleStatementLine(
+            [type_alias_updated],
+            leading_lines=node.leading_lines,
+            trailing_whitespace=node.trailing_whitespace,
+        )
+
+    statements = [
+        *(_backport_tpar(param) for param in type_params),
+        type_alias_updated,
+    ]
+
+    lines: list[cst.SimpleStatementLine] = []
+    for i, statement in enumerate(statements):
+        line = cst.SimpleStatementLine([statement])
+        if i == 0:
+            line = line.with_changes(leading_lines=node.leading_lines)
+        elif i == len(statements) - 1:
+            line = line.with_changes(
+                trailing_whitespace=node.trailing_whitespace,
+            )
+        lines.append(line)
+
+    return cst.FlattenSentinel(lines)
+
+
+def _backport_tpar(tpar: cst.TypeParam, /, *, variant: bool = False) -> cst.Assign:
+    param = tpar.param
     name = param.name.value
 
     args = [cst.Arg(str_expr(name))]
 
     match param:
         case cst.TypeVar(_, bound):
-            if infer_variance:
-                if len(name) > 6 and name.endswith("_contra"):
+            if variant:
+                if name.endswith(("_contra", "_in")):
                     variance = "contravariant"
-                elif len(name) > 3 and name.endswith("_co"):
+                elif name.endswith(("_co", "_out")):
                     variance = "covariant"
                 else:
                     variance = "infer_variance"
-            elif contravariant:
-                variance = "contravariant"
-            elif covariant:
-                variance = "covariant"
             else:
                 variance = None
             if variance:
                 args.append(kwarg_expr(variance, bool_expr(True)))
 
             match bound:
-                case None | cst.Name("object"):
-                    # `bound=object` is the default, so can be skipped
+                case (
+                    None
+                    | cst.Name("object")
+                    | cst.Name("Any")
+                    | cst.Attribute(cst.Name("typing"), cst.Name("Any"))
+                ):
                     bound = None
                 case cst.Tuple(elements):
-                    # TODO: Configurable flag to convert constraints to `bound`
                     for el in elements:
-                        assert isinstance(el, cst.Element)
-                        con = el.value
+                        con = cst.ensure_type(el, cst.Element).value
                         if isinstance(con, cst.Name) and con.value == "Any":
                             # `Any` is literally Hitler
                             con = cst.Name("object")
                         args.append(cst.Arg(con))
                     bound = None
-                case cst.Name("Any") as bound_any:
-                    # `Any` is literally Hitler; use `object` instead
-                    bound = cst.Name("object", lpar=bound_any.lpar, rpar=bound_any.rpar)
                 case cst.BaseExpression():
                     pass
 
@@ -275,7 +126,7 @@ def backport_type_param(
         case cst.TypeVarTuple(_) | cst.ParamSpec(_):
             bound = cst.Name("object")
 
-    match default := type_param.default:
+    match default := tpar.default:
         case None:
             pass
         case cst.Name("Any") as _b:
@@ -292,6 +143,53 @@ def backport_type_param(
     )
 
 
+def _remove_tpars[N: _AnyDef](node: N, /) -> N:
+    if node.type_parameters:
+        return node.with_changes(type_parameters=None)
+    return node
+
+
+def _get_typing_baseclass(
+    node: cst.ClassDef,
+    base_name: LiteralString,
+    /,
+) -> cst.Name | cst.Attribute | None:
+    base_expr_matches: list[cst.Name | cst.Attribute] = []
+    for base_arg in node.bases:
+        if base_arg.keyword or base_arg.star:
+            break
+
+        match base_expr := base_arg.value:
+            case cst.Name(_name) if _name == base_name:
+                return base_expr
+            case cst.Attribute(
+                cst.Name("typing" | "typing_extensions"),
+                cst.Name(_name),
+            ) if _name == base_name:
+                base_expr_matches.append(base_expr)
+            case cst.Subscript(
+                cst.Name(_name)
+                | cst.Attribute(
+                    cst.Name("typing" | "typing_extensions"),
+                    cst.Name(_name),
+                ),
+            ) if _name == base_name:
+                raise NotImplementedError(f"{base_name!r} base class with type params")
+            case _:
+                pass
+
+    match base_expr_matches:
+        case []:
+            return None
+        case [base_expr]:
+            return base_expr
+        case _:
+            # TODO: resolve by considering all available `typing` imports and aliases
+            raise NotImplementedError(
+                f"multiple {base_name!r} base classes found in {node.name.value}",
+            )
+
+
 def _workaround_libcst_runtime_typecheck_bug[F: Callable[..., object]](f: F, /) -> F:
     # LibCST crashes if `cst.SimpleStatementLine` is included in the return type
     # annotation.
@@ -300,122 +198,326 @@ def _workaround_libcst_runtime_typecheck_bug[F: Callable[..., object]](f: F, /) 
     return f
 
 
-# class TypeAliasTransformer(cst.CSTTransformer):
-class TypeAliasTransformer(m.MatcherDecoratableTransformer):
-    type_params: Final[_TypeParamDict]
+class PEP695Collector(cst.CSTVisitor):
+    """
+    Collect all PEP-695 type-parameters & required imports in the module's functions,
+    classes, and type-aliases.
+    """
 
-    def __init__(self, /, *, type_params: _TypeParamDict) -> None:
-        self.type_params = type_params
+    _stack: Final[collections.deque[str]]
+
+    # {module}
+    current_imports: set[_TypingModule]
+    # {module: {name: alias}}
+    current_imports_from: dict[_TypingModule, dict[str, str]]
+    # {module: name}
+    missing_imports_from: dict[_TypingModule, set[str]]
+
+    # {outer_scope: [typevar-like, ...]}
+    missing_tvars: dict[str, list[cst.Assign]]
+
+    def __init__(self, /) -> None:
+        self._stack = collections.deque()
+
+        self.current_imports = set()
+        self.current_imports_from = {m: {} for m in _TYPING_MODULES}
+        self.missing_imports_from = {m: set() for m in _TYPING_MODULES}
+
+        self.missing_tvars = collections.defaultdict(list)
+
+        super().__init__()
+
+    @override
+    def visit_Import(self, /, node: cst.Import) -> bool | None:
+        # `import typing as something_else` is not yet supported; so explicitly raise
+        # if it's encountered
+        for alias in node.names:
+            match alias.name:
+                case cst.Name("typing" | "typing_extensions" as name):
+                    if alias.asname:
+                        raise NotImplementedError(f"import {name} as _")
+                    self.current_imports.add(name)
+                case cst.Attribute(cst.Name("collections"), cst.Name("abc")):
+                    raise NotImplementedError("import collections.abc")
+                case _:
+                    pass
+
+    @override
+    def visit_ImportFrom(self, /, node: cst.ImportFrom) -> None:
+        if node.relative:
+            return
+
+        match node.module:
+            case cst.Name("typing" | "typing_extensions" as module):
+                pass
+            case _:
+                return
+
+        if isinstance(node.names, cst.ImportStar):
+            raise NotImplementedError(f"from {module} import *")
+
+        imported = self.current_imports_from[module]
+        for alias in node.names:
+            name = cst.ensure_type(alias.name, cst.Name).value
+
+            if alias.asname:
+                as_ = cst.ensure_type(alias.asname, cst.Name).value
+            else:
+                as_ = name
+
+            imported[name] = as_
+
+    @override
+    def visit_TypeAlias(self, /, node: cst.TypeAlias) -> None:
+        import_from, import_name = "typing", "TypeAlias"
+        if tpars := node.type_parameters:
+            assert not self._stack
+
+            name = node.name.value
+            assert name not in self.missing_tvars
+
+            self.missing_tvars[name].extend(
+                map(_backport_tpar, tpars.params),
+            )
+
+            missing_imports = self.missing_imports_from
+            for tpar in tpars.params:
+                import_from = "typing_extensions" if tpar.default else "typing"
+                missing_imports[import_from].add(type(tpar.param).__name__)
+
+            if len(tpars.params) > 1:
+                # TODO: check the RHS order
+                import_from, import_name = "typing_extensions", "TypeAliasType"
+
+        self.missing_imports_from[import_from].add(import_name)
+
+    @override
+    def visit_ClassDef(self, /, node: cst.ClassDef) -> bool | None:
+        stack = self._stack
+        stack.append(node.name.value)
+
+        if not (tpars := node.type_parameters):
+            return
+
+        if _get_typing_baseclass(node, "Generic"):
+            raise TypeError("can't use type params with a `Generic` base class")
+
+        if not _get_typing_baseclass(node, "Protocol"):
+            # this will require an additional `typing.Generic` base class
+            self.missing_imports_from["typing"].add("Generic")
+
+        assert len(stack) > 1 or stack[0] not in self.missing_tvars
+        self.missing_tvars[stack[0]].extend(
+            _backport_tpar(tpar, variant=True) for tpar in tpars.params
+        )
+
+        # infer_variance requires typing_extensions
+        imports = self.missing_imports_from
+        for tpar in tpars.params:
+            name = tpar.param.name.value
+            module = (
+                "typing_extensions"
+                if tpar.default
+                or (len(name) >= 4 and name.endswith(("_contra", "_in", "_co", "_out")))
+                else "typing"
+            )
+            imports[module].add(type(tpar.param).__name__)
+
+    @override
+    def leave_ClassDef(self, /, original_node: cst.ClassDef) -> None:
+        name = self._stack.pop()
+        assert name == original_node.name.value
+
+    @override
+    def visit_FunctionDef(self, /, node: cst.FunctionDef) -> bool | None:
+        stack = self._stack
+        stack.append(node.name.value)
+
+        if not (tpars := node.type_parameters):
+            return
+
+        self.missing_tvars[stack[0]].extend(map(_backport_tpar, tpars.params))
+
+        imports = self.missing_imports_from
+        for tpar in tpars.params:
+            module = "typing_extensions" if tpar.default else "typing"
+            imports[module].add(type(tpar.param).__name__)
+
+    @override
+    def leave_FunctionDef(self, /, original_node: cst.FunctionDef) -> None:
+        name = self._stack.pop()
+        assert name == original_node.name.value
+
+
+class TypeAliasTransformer(m.MatcherDecoratableTransformer):
+    _stack: collections.deque[str]
+
+    current_imports: frozenset[_TypingModule]
+    current_imports_from: dict[_TypingModule, dict[str, str]]
+    missing_tvars: dict[str, list[cst.Assign]]
+
+    def __init__(
+        self,
+        /,
+        *,
+        current_imports: set[_TypingModule],
+        current_imports_from: dict[_TypingModule, dict[str, str]],
+        missing_tvars: dict[str, list[cst.Assign]],
+    ) -> None:
+        self._stack = collections.deque()
+        self.current_imports = frozenset(current_imports)
+        self.current_imports_from = current_imports_from
+        self.missing_tvars = missing_tvars
         super().__init__()
 
     @m.call_if_inside(m.Module([m.ZeroOrMore(m.SimpleStatementLine())]))
     @m.leave(m.SimpleStatementLine([m.TypeAlias()]))
     @_workaround_libcst_runtime_typecheck_bug
-    def desugar_type_alias(
+    def desugar_type_alias(  # noqa: PLR6301
         self,
         /,
         _: cst.SimpleStatementLine,
         updated_node: cst.SimpleStatementLine,
-    ) -> cst.SimpleStatementLine | cst.FlattenSentinel[cst.SimpleStatementLine]:
-        assert len(updated_node.body) == 1
-        type_alias_original = cast(cst.TypeAlias, updated_node.body[0])
-        name = type_alias_original.name
+    ) -> _NodeFlat[cst.SimpleStatementLine]:
+        return _backport_type_alias(updated_node)
 
-        type_params = self.type_params[name.value,]
+    def _prepend_tvars[N: _AnyDef](self, /, node: N) -> _NodeFlat[N, cst.BaseStatement]:
+        if not (tvars := self.missing_tvars.get(node.name.value, [])):
+            return node
 
-        if type_params and len(type_params) > 1:
-            # TODO: only do this if the order differs between the LHS and RHS.
-            type_alias_updated = cst.Assign(
-                [cst.AssignTarget(name)],
-                cst.Call(
-                    cst.Name("TypeAliasType"),
-                    [cst.Arg(str_expr(name.value)), cst.Arg(type_alias_original.value)],
-                ),
-            )
-        else:
-            type_alias_updated = cst.AnnAssign(
-                target=name,
-                annotation=cst.Annotation(cst.Name("TypeAlias")),
-                value=type_alias_original.value,
-            )
+        lines = (
+            cst.SimpleStatementLine([tvar], node.leading_lines if i == 0 else ())
+            for i, tvar in enumerate(tvars)
+        )
+        return cst.FlattenSentinel([*lines, node])
 
-        typevars = [
-            backport_type_param(param, infer_variance=scope == _TypeParamScope.CLASS)
-            for param, scope in type_params
+    @override
+    def visit_ClassDef(self, /, node: cst.ClassDef) -> None:
+        self._stack.append(node.name.value)
+
+    @override
+    def leave_ClassDef(
+        self,
+        /,
+        original_node: cst.ClassDef,
+        updated_node: cst.ClassDef,
+    ) -> _NodeFlat[cst.ClassDef, cst.BaseStatement]:
+        # TODO: subscript if `Protocol` is a base class, or add `Generic` as base
+        name = self._stack.pop()
+        assert name == updated_node.name.value
+
+        if not (tpars := original_node.type_parameters):
+            return updated_node
+
+        subscripts = [
+            cst.SubscriptElement(cst.Index(type_param.param.name))
+            for type_param in tpars.params
         ]
-        if not typevars:
-            return cst.SimpleStatementLine(
-                [type_alias_updated],
-                leading_lines=updated_node.leading_lines,
-                trailing_whitespace=updated_node.trailing_whitespace,
-            )
 
-        statements = [*typevars, type_alias_updated]
+        if base_protocol := _get_typing_baseclass(original_node, "Protocol"):
+            new_bases = [
+                cst.Arg(cst.Subscript(base_protocol, subscripts))
+                if base_arg.value is base_protocol
+                else base_arg
+                for base_arg in original_node.bases
+            ]
+        else:
+            new_bases = [
+                *updated_node.bases,
+                cst.Arg(cst.Subscript(cst.Name("Generic"), subscripts)),
+            ]
 
-        lines: list[cst.SimpleStatementLine] = []
-        for i, statement in enumerate(statements):
-            if i == 0:
-                line = cst.SimpleStatementLine(
-                    [statement],
-                    leading_lines=updated_node.leading_lines,
-                )
-            elif i == len(statements) - 1:
-                line = cst.SimpleStatementLine(
-                    [statement],
-                    trailing_whitespace=updated_node.trailing_whitespace,
-                )
-            else:
-                line = cst.SimpleStatementLine([statement])
+        updated_node = updated_node.with_changes(type_parameters=None, bases=new_bases)
 
-            lines.append(line)
+        return self._prepend_tvars(updated_node) if not self._stack else updated_node
 
-        return cst.FlattenSentinel(lines)
+    @override
+    def visit_FunctionDef(self, /, node: cst.FunctionDef) -> None:
+        self._stack.append(node.name.value)
+
+    @override
+    def leave_FunctionDef(
+        self,
+        /,
+        original_node: cst.FunctionDef,
+        updated_node: cst.FunctionDef,
+    ) -> cst.FunctionDef | cst.FlattenSentinel[cst.BaseStatement]:
+        name = self._stack.pop()
+        assert name == updated_node.name.value
+
+        updated_node = _remove_tpars(updated_node)
+
+        if self._stack:
+            return updated_node
+
+        return self._prepend_tvars(updated_node)
+
+    @classmethod
+    def from_collector(cls, collector: PEP695Collector, /) -> Self:
+        return cls(
+            current_imports=collector.current_imports,
+            current_imports_from=collector.current_imports_from,
+            missing_tvars=collector.missing_tvars,
+        )
 
 
 class TypingImportTransformer(m.MatcherDecoratableTransformer):
     _TYPING_MODULES: ClassVar = m.Name("typing") | m.Name("typing_extensions")
 
-    _cur_typing: Final[frozenset[str]]
-    _req_typing: Final[frozenset[str]]
-    _cur_typing_extensions: Final[frozenset[str]]
-    _req_typing_extensions: Final[frozenset[str]]
+    current_imports: frozenset[_TypingModule]
+    current_imports_from: dict[_TypingModule, dict[str, str]]
+    missing_imports_from: dict[_TypingModule, set[str]]
 
     def __init__(
         self,
         /,
-        cur_imports_typing: set[str],
-        cur_imports_typing_extensions: set[str],
-        req_imports_typing: set[str],
-        req_imports_typing_extensions: set[str],
+        *,
+        current_imports: set[_TypingModule],
+        current_imports_from: dict[_TypingModule, dict[str, str]],
+        missing_imports_from: dict[_TypingModule, set[str]],
     ) -> None:
-        self._cur_typing = frozenset(cur_imports_typing)
-        self._req_typing = frozenset(req_imports_typing)
-        self._cur_typing_extensions = frozenset(cur_imports_typing_extensions)
-        self._req_typing_extensions = frozenset(req_imports_typing_extensions)
+        self.current_imports = frozenset(current_imports)
+        self.current_imports_from = current_imports_from
+        self.missing_imports_from = missing_imports_from
 
         super().__init__()
 
     @property
-    def _del_typing(self) -> frozenset[str]:
+    def _del_from_typing(self) -> set[str]:
         """
         The current `typing` imports that should be imported from `typing_extensions`
         instead.
+
+        Todo:
+            Remove aliases as well (requires renaming references).
         """
-        return self._cur_typing & self._req_typing_extensions
+        missing_tpx = self.missing_imports_from["typing_extensions"]
+        return {
+            name
+            for name, as_ in self.current_imports_from["typing"].items()
+            if name == as_ and name in missing_tpx
+        }
 
     @property
-    def _add_typing(self) -> frozenset[str]:
+    def _add_from_typing(self) -> set[str]:
         """The `typing` imports that are missing."""
-        return self._req_typing - self._cur_typing - self._req_typing_extensions
+        # return self._req_typing - self._cur_typing - self._req_typing_extensions
+        return (
+            self.missing_imports_from["typing"]
+            - set(self.current_imports_from["typing"])
+            - self.missing_imports_from["typing_extensions"]
+        )
 
     @property
-    def _add_typing_extensions(self) -> frozenset[str]:
+    def _add_from_typing_extensions(self) -> set[str]:
         """The `typing_extensions` imports that are missing."""
-        return self._req_typing_extensions - self._cur_typing_extensions
+        return self.missing_imports_from["typing_extensions"] - set(
+            self.current_imports_from["typing_extensions"],
+        )
 
     @m.call_if_inside(m.SimpleStatementLine([m.OneOf(m.ImportFrom(_TYPING_MODULES))]))
     @m.leave(m.ImportFrom(_TYPING_MODULES))
-    def update_typing_import(
+    def transform_typing_import(
         self,
         /,
         _: cst.ImportFrom,
@@ -423,24 +525,23 @@ class TypingImportTransformer(m.MatcherDecoratableTransformer):
     ) -> cst.ImportFrom:
         module = cst.ensure_type(updated_node.module, cst.Name).value
 
-        aliases = cast(Sequence[cst.ImportAlias], updated_node.names)
+        assert not isinstance(updated_node.names, cst.ImportStar)
+        aliases = updated_node.names
 
-        names_del: frozenset[str]
         if module == "typing":
-            names_del = self._del_typing
-            names_add = self._add_typing
+            names_del = self._del_from_typing
+            names_add = self._add_from_typing
         else:
             assert module == "typing_extensions"
-            names_del = frozenset()
-            names_add = self._add_typing_extensions
+            names_del = set[str]()
+            names_add = self._add_from_typing_extensions
 
         if not names_del and not names_add:
             return updated_node
 
         aliases_new = [a for a in aliases if a.name.value not in names_del]
         aliases_new.extend(cst.ImportAlias(cst.Name(name)) for name in names_add)
-        aliases_new.sort(key=lambda a: cast(str, a.name.value))
-
+        aliases_new.sort(key=lambda a: cst.ensure_type(a.name, cst.Name).value)
         return updated_node.with_changes(names=aliases_new)
 
     @override
@@ -452,25 +553,24 @@ class TypingImportTransformer(m.MatcherDecoratableTransformer):
     ) -> cst.Module:
         new_statements: list[cst.SimpleStatementLine] = []
 
-        if not self._cur_typing and self._req_typing:
+        if not self.current_imports_from["typing"] and self._add_from_typing:
             new_statements.append(
                 cst.SimpleStatementLine([
                     cst.ImportFrom(
                         cst.Name("typing"),
-                        [cst.ImportAlias(cst.Name(n)) for n in self._add_typing],
+                        [cst.ImportAlias(cst.Name(n)) for n in self._add_from_typing],
                     ),
                 ]),
             )
 
-        if not self._cur_typing_extensions and self._add_typing_extensions:
+        if not self.current_imports_from["typing_extensions"] and (
+            add_tpx := self._add_from_typing_extensions
+        ):
             new_statements.append(
                 cst.SimpleStatementLine([
                     cst.ImportFrom(
                         cst.Name("typing_extensions"),
-                        [
-                            cst.ImportAlias(cst.Name(n))
-                            for n in self._add_typing_extensions
-                        ],
+                        [cst.ImportAlias(cst.Name(n)) for n in add_tpx],
                     ),
                 ]),
             )
@@ -508,25 +608,34 @@ class TypingImportTransformer(m.MatcherDecoratableTransformer):
                         raise NotImplementedError("import typing[_extensions]")
                     # insert after all `import ...` statements
                     i_insert = i + 1
-                else:
-                    if node.relative:
-                        # insert before the first relative import
+                    continue
+
+                if node.relative:
+                    # insert before the first relative import
+                    return i
+
+                match node.module:
+                    case cst.Name("typing"):
+                        # insert the (`typing_extensions`) import after `typing`
+                        return i + 1
+                    case cst.Name("typing_extensions"):
+                        # insert the (`typing`) import before `typing_extensions`
                         return i
-
-                    match node.module:
-                        case cst.Name("typing"):
-                            # insert the (`typing_extensions`) import after `typing`
-                            return i + 1
-                        case cst.Name("typing_extensions"):
-                            # insert the (`typing`) import before `typing_extensions`
+                    case cst.Name(name):
+                        # otherwise, assume alphabetically sorted on module, and
+                        # and insert to maintain the order
+                        if name > "typing_extensions":
                             return i
-                        case cst.Name(name):
-                            # otherwise, assume alphabetically sorted on module, and
-                            # and insert to maintain the order
-                            if name > "typing_extensions":
-                                return i
 
-                            i_insert = i + 1
-                        case _:
-                            continue
+                        i_insert = i + 1
+                    case _:
+                        continue
         return i_insert
+
+    @classmethod
+    def from_collector(cls, /, collector: PEP695Collector) -> Self:
+        return cls(
+            current_imports=collector.current_imports,
+            current_imports_from=collector.current_imports_from,
+            missing_imports_from=collector.missing_imports_from,
+        )
