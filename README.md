@@ -74,20 +74,17 @@ pip install unpy
 
 ## Usage
 
-```plain
-Usage: unpy [OPTIONS] FILE_IN [FILE_OUT]
+```console
+$ unpy --help
+Usage: unpy [OPTIONS] SOURCE [OUTPUT]
 
 Arguments:
-  FILE_IN     [required]
-  [FILE_OUT]  [default: -]
+  SOURCE    Path to the input .pyi file or '-' to read from stdin.  [required]
+  [OUTPUT]  Path to the output .pyi file. Defaults to stdout.
 
 Options:
-  --install-completion [bash|zsh|fish|powershell|pwsh]
-                                  Install completion for the specified shell.
-  --show-completion [bash|zsh|fish|powershell|pwsh]
-                                  Show completion for the specified shell, to
-                                  copy it or customize the installation.
-  --help
+  -V, --version  Show the version and exit
+  --help         Show this message and exit.
 ```
 
 ## Features
