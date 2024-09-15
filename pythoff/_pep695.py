@@ -7,7 +7,7 @@ import libcst.matchers as m
 
 type _TypingModule = Literal["typing", "typing_extensions"]
 type _AnyDef = cst.ClassDef | cst.FunctionDef
-type _NodeFlat[N: cst.CSTNode, FN: cst.CSTNode = N] = N | cst.FlattenSentinel[FN]  # noqa: E251
+type _NodeFlat[N: cst.CSTNode, FN: cst.CSTNode] = N | cst.FlattenSentinel[FN]
 
 _TYPING_MODULES: Final = "typing", "typing_extensions"
 
@@ -378,7 +378,7 @@ class TypeAliasTransformer(m.MatcherDecoratableTransformer):
         /,
         _: cst.SimpleStatementLine,
         updated_node: cst.SimpleStatementLine,
-    ) -> _NodeFlat[cst.SimpleStatementLine]:
+    ) -> _NodeFlat[cst.SimpleStatementLine, cst.SimpleStatementLine]:
         return _backport_type_alias(updated_node)
 
     def _prepend_tvars[N: _AnyDef](self, /, node: N) -> _NodeFlat[N, cst.BaseStatement]:

@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VERSION_UV: "0.4.9"
+  VERSION_UV: "0.4.10"
 
 jobs:
   lint:
@@ -46,3 +46,32 @@ jobs:
         with:
           config: ".markdownlint.yaml"
           globs: "*.md"
+
+  test:
+    timeout-minutes: 5
+
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12", "3.13"]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      - name: setup uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          version: ${{ env.VERSION_UV }}
+          enable-cache: true
+
+      - name: setup python
+        run: uv python install ${{ matrix.python-version }}
+
+      - name: uv sync
+        run: uv sync --frozen --dev
+
+      - name: pytest
+        run: uv run pytest
