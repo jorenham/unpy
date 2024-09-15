@@ -419,7 +419,7 @@ class TypeAliasTransformer(m.MatcherDecoratableTransformer):
                 cst.Arg(cst.Subscript(base_protocol, subscripts))
                 if base_arg.value is base_protocol
                 else base_arg
-                for base_arg in updated_node.bases
+                for base_arg in original_node.bases
             ]
         else:
             new_bases = [
