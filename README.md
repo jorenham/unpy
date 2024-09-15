@@ -1,7 +1,7 @@
 <h1 align="center">unpy</h1>
 
 <p align="center">
-    Backports Python 3.13 typing stubs to earlier Python versions
+    Backports Python typing stubs to earlier Python versions
 </p>
 
 <p align="center">
@@ -90,21 +90,81 @@ Options:
   --help
 ```
 
-## Features / Wishlist
+## Features
 
-- [x] Remove redundant `Any` and `object` type-parameter bounds
-- [x] Replace `Any` type-parameter defaults with the upper-bound or `object`
-- [ ] Replace `collections.abc` and `typing` imports with `typing_extensions` backports.
-- [x] Add additional `typing[_extensions]` imports for e.g. `TypeVar` and `TypeAlias`.
-- [x] Backport PEP-695 `type {}` aliases to `{}: TypeAlias` (or use
-`{} = TypeAliasType('{}', ...)`) if the LHS and RHS order differs).
-- [x] Backport PEP-695 classes and protocols to `Generic` and `Protocol`
-- [x] Backport PEP-695 generic functions
-- [x] Transform PEP-696 `T = {}` type param defaults to `TypeVar("T", default={})`.
-- [ ] Rename / de-duplicate typevar-like definitions
-- [ ] Infer variance of (all) `Generic` and `Protocol` type params (currently
-`infer_variance=True` is used if there's no `{}_co` or `{}_contra` suffix)
-- [ ] Transform `*Ts` to `Unpack[Ts]` (`TypeVarTuple`)
-- [x] Transform `**Tss` to `Tss` (`ParamSpec`)
-- [ ] Reuse e.g. `import typing` or `import typing as tp` if present
-- [ ] Detect re-exported imports from `typing` or `typing_extensions` of other modules
+- Python 3.13 => 3.12
+    - [ ] [PEP 742][PEP742]: `typing.TypeIs` => `typing_extensions._TypeIs_`
+    - [ ] [PEP 705][PEP705]: `typing.ReadOnly` => `typing_extensions.ReadOnly`
+    - [ ] [PEP 702][PEP702]: `warnings.deprecated` => `typing_extensions.deprecated`
+    - [x] [PEP 696][PEP696]: Backport [PEP 695][PEP695] type signatures i.f.f. it
+    includes a type parameter with default using `typing_extensions.TypeVar()`
+- Python 3.12 => 3.11
+    - [ ] [PEP 698][PEP698]: `typing.override` => `typing_extensions.override`
+    - [x] [PEP 695][PEP695]: Backport generic functions
+    - [x] [PEP 695][PEP695]: Backport generic classes
+    - [x] [PEP 695][PEP695]: Backport generic protocols
+    - [x] [PEP 695][PEP695]: `type {} = ...` => `{}: TypeAlias = ...` or
+    `{} = TypeAliasType('{}', ...)` (if the LHS and RHS type-param order differs).
+    - [ ] [PEP 688][PEP688]: `collections.abc.Buffer` => `typing_extensions.Buffer`
+    - [ ] [PEP 688][PEP688]: `inspect.BufferFlags` => a custom `enum.IntEnum`
+    - [ ] Backport subclasses of `path.Path`
+- Python 3.11 => 3.10
+    - [ ] [PEP 681][PEP681]: `typing.dataclass_transform` =>
+    `typing_extensions.dataclass_transform`
+    - [ ] [PEP 680][PEP680]: `tomllib` => `tomli`
+    - [ ] [PEP 675][PEP675]: `typing.LiteralString` => `typing_extensions.LiteralString`
+    - [ ] [PEP 673][PEP673]: `typing.Self` => `typing_extensions.Self`
+    - [ ] [PEP 655][PEP655]: `typing.[Not]Required` => `typing_extensions.[Not]Required`
+    - [ ] [PEP 646][PEP646]: `*Ts` => `typing_extensions.Unpack[Ts]`
+- Generated `TypeVar`s
+    - [ ] Prefix extracted `TypeVar`s names with `_`
+    - [ ] De-duplicate extracted `TypeVar`s
+    - [ ] Prevent `TypeVar` name clashes (rename or merge)
+    - [ ] Infer variance of `typing_extensions.TypeVar(..., infer_variance=True)` whose
+      name does not end with `_contra`/`_in` (`contravariant=True`) or `_co`/`_out`
+      (`covariant=True`)
+    - [x] Convert `default=Any` to `default={bound}` or `default=object`
+    - [x] Remove `bound=Any` and `bound=object`
+    - [ ] Importing `TypeVar`'s (not recommended)
+- Imports
+    - [x] Reuse existing `from typing[_extensions] import {name}` imports instead of
+    adding new ones
+    - [ ] Reuse `from {module} import {name} as {alias}` import aliases if present, e.g.
+    `from typing import TypeVar as TypeParam`
+    - [ ] Reuse `import {module} as {alias}` if present, e.g. `import typing as tp`
+    - [ ] Support for custom `typing` modules (like `[tool.ruff.lint.typing-modules]`)
+    - [ ] Support for `from typing[_extensions] import *` (not recommended)
+- Interface
+    - [x] Backport from stdin / to stdout
+    - [x] Backport a single `.pyi` file
+    - [ ] Backport all `.pyi` files in package
+    - [ ] Configuration options in `pyproject.toml` as `[tools.unpy]`
+    - [ ] File watcher that backports on change
+    - [ ] Project build tools
+    - [ ] Configurable type-checker integration
+    - [ ] Configurable post processing with e.g. `ruff format`
+- Misc
+    - [ ] Transform `self` parameters to be positional-only
+    - [ ] Use `None` as the default return type
+    - [ ] De-duplicate and flatten unions and literals
+    - [ ] `type[S] | type[T]` => `type[S | T]`
+- Extended syntax
+    - [ ] Write `_: True | 1 | "a"` instead of `_: Literal[True, 1, "a"]`
+    - [ ] Allow omitting `@overload`
+    - [ ] Intersection types
+    - [ ] Mapped types
+    - [ ] Higher-kinded types
+
+[PEP646]: https://peps.python.org/pep-0646/
+[PEP655]: https://peps.python.org/pep-0655/
+[PEP673]: https://peps.python.org/pep-0673/
+[PEP675]: https://peps.python.org/pep-0675/
+[PEP680]: https://peps.python.org/pep-0680/
+[PEP681]: https://peps.python.org/pep-0681/
+[PEP688]: https://peps.python.org/pep-0688/
+[PEP695]: https://peps.python.org/pep-0695/
+[PEP696]: https://peps.python.org/pep-0696/
+[PEP698]: https://peps.python.org/pep-0698/
+[PEP702]: https://peps.python.org/pep-0702/
+[PEP705]: https://peps.python.org/pep-0705/
+[PEP742]: https://peps.python.org/pep-0705/
