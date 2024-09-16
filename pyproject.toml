@@ -111,6 +111,9 @@ preview = true
 select = ["ALL"]
 ignore = ["C", "D", "S101", "FBT", "CPY", "ERA", "EM", "T20", "TD", "FIX", "TRY003"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["ANN201", "PLC2701"]
+
 [tool.ruff.lint.isort]
 extra-standard-library = ["_typeshed", "typing_extensions"]
 

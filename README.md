@@ -103,7 +103,7 @@ Options:
     - [x] [PEP 695][PEP695]: Backport generic classes
     - [x] [PEP 695][PEP695]: Backport generic protocols
     - [x] [PEP 695][PEP695]: `type {} = ...` => `{}: TypeAlias = ...` or
-    `{} = TypeAliasType('{}', ...)` (if the LHS and RHS type-param order differs).
+    - [ ] [PEP 695][PEP695]: `typing.TypeAliasType` => `typing_extensions.TypeAliasType`
     - [ ] [PEP 688][PEP688]: `collections.abc.Buffer` => `typing_extensions.Buffer`
     - [ ] [PEP 688][PEP688]: `inspect.BufferFlags` => a custom `enum.IntEnum`
     - [ ] Backport subclasses of `path.Path`
