@@ -70,15 +70,15 @@ packages = ["unpy"]
 dev-dependencies = [
   "basedpyright>=1.17.4,<2",
   "codespell>=2.3.0,<3",
-  "pre-commit>=3.8.0",
+  "pre-commit>=3.8.0,<4",
   "pytest>=8.3.3,<9",
-  "ruff>=0.6.5,<0.7",
-  "tox>=4.18.1",
+  "ruff>=0.6.5,<1",
+  "tox>=4.18.1,<5",
 ]
 
-[tool.basedpyright]
+[tool.pyright]
 ignore = ["**/.venv"]
-include = ["unpy", "examples"]
+include = ["unpy", "examples", "tests"]
 pythonPlatform = "All"
 pythonVersion = "3.13"
 venv = ".venv"
@@ -86,6 +86,12 @@ venvPath = "."
 stubPath = "."
 typeCheckingMode = "all"
 reportUnusedParameter = false  # dupe of ARG001
+
+executionEnvironments = [
+  {root = "examples", pythonVersion = "3.13"},
+  {root = "tests", reportPrivateUsage = false},
+  {root = "unpy"}
+]
 
 [tool.pytest.ini_options]
 addopts = ["-ra", "--strict-config", "--strict-markers"]

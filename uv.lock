@@ -349,10 +349,10 @@ requires-dist = [
 dev = [
     { name = "basedpyright", specifier = ">=1.17.4,<2" },
     { name = "codespell", specifier = ">=2.3.0,<3" },
-    { name = "pre-commit", specifier = ">=3.8.0" },
+    { name = "pre-commit", specifier = ">=3.8.0,<4" },
     { name = "pytest", specifier = ">=8.3.3,<9" },
-    { name = "ruff", specifier = ">=0.6.5,<0.7" },
-    { name = "tox", specifier = ">=4.18.1" },
+    { name = "ruff", specifier = ">=0.6.5,<1" },
+    { name = "tox", specifier = ">=4.18.1,<5" },
 ]
 
 [[package]]
