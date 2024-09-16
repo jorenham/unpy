@@ -327,13 +327,15 @@ class PY311Collector(cst.CSTVisitor):
         imports = self.missing_imports_from
         for tpar in tpars.params:
             name = tpar.param.name.value
-            module = (
-                "typing_extensions"
-                if tpar.default
-                or (len(name) >= 4 and name.endswith(("_contra", "_in", "_co", "_out")))
-                else "typing"
-            )
-            imports[module].add(type(tpar.param).__name__)
+            tname = type(tpar.param).__name__
+
+            if tname in imports["typing_extensions"]:
+                continue
+            if tpar.default or not name.endswith(("_contra", "_in", "_co", "_out")):
+                imports["typing_extensions"].add(tname)
+                imports["typing"].discard(tname)
+            else:
+                imports["typing"].add(tname)
 
     @override
     def leave_ClassDef(self, /, original_node: cst.ClassDef) -> None:
