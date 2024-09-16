@@ -147,6 +147,7 @@ Options:
     - [ ] VSCode extension
     - [ ] (based)mypy plugin
 - Misc
+    - [ ] `.py` support
     - [ ] Transform `self` parameters to be positional-only
     - [ ] Use `None` as the default return type
     - [ ] De-duplicate and flatten unions and literals
