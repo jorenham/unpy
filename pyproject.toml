@@ -80,7 +80,7 @@ dev-dependencies = [
 ignore = ["**/.venv"]
 include = ["unpy", "examples", "tests"]
 pythonPlatform = "All"
-pythonVersion = "3.13"
+pythonVersion = "3.12"
 venv = ".venv"
 venvPath = "."
 stubPath = "."
@@ -104,8 +104,8 @@ xfail_strict = true
 [tool.ruff]
 force-exclude = true
 indent-width = 4
-src = ["unpy", "examples"]
-target-version = "py313"
+src = ["unpy"]
+target-version = "py312"
 
 [tool.ruff.format]
 indent-style = "space"
