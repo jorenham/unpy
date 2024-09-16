@@ -1,4 +1,3 @@
-import errno
 import fileinput
 import sys
 from pathlib import Path
@@ -75,7 +74,7 @@ def convert_command(
     if str(source) == "-":
         if sys.stdin.isatty():
             typer.echo("Input must be a .pyi file", err=True)
-            raise typer.Exit(errno.ENOTTY)
+            raise typer.Exit(1)
         with fileinput.input(source) as fp:
             source_in = "".join(fp)
     else:
