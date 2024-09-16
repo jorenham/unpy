@@ -138,10 +138,14 @@ Options:
     - [x] Backport a single `.pyi` file
     - [ ] Backport all `.pyi` files in package
     - [ ] Configuration options in `pyproject.toml` as `[tools.unpy]`
-    - [ ] File watcher that backports on change
     - [ ] Project build tools
     - [ ] Configurable type-checker integration
     - [ ] Configurable post processing with e.g. `ruff format`
+- Integration
+    - [ ] File watcher
+    - [ ] Pre-commit
+    - [ ] VSCode extension
+    - [ ] (based)mypy plugin
 - Misc
     - [ ] Transform `self` parameters to be positional-only
     - [ ] Use `None` as the default return type
