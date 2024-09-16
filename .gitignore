@@ -1,22 +1,25 @@
 # Byte-compiled / optimized / DLL files
-__pycache__/
+__pycache__
 *.py[cod]
 *$py.class
 
 # Distribution / packaging
-build/
-dist/
-site/
+build
+dist
+site
 
 # Cache
-.pytest_cache/
-.ruff_cache/
+.cache
+.mypy_cache
+.pytest_cache
+.ruff_cache
+.tox
 
 # Environments
 .env
-.venv/
-venv/
+.venv
+venv
 
 # IntelliJ
-.idea/
-.run/
+.idea
+.run
