@@ -83,8 +83,10 @@ Arguments:
   [OUTPUT]  Path to the output .pyi file. Defaults to stdout.
 
 Options:
-  -V, --version  Show the version and exit
-  --help         Show this message and exit.
+  -V, --version        Show the version and exit
+  -P, --python [3.11]  The minimum Python version that should be supported.
+                       [default: 3.11]
+  --help               Show this message and exit.
 ```
 
 ## Features
