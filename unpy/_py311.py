@@ -19,7 +19,7 @@ def bool_expr(value: bool, /) -> cst.Name:
 
 
 def str_expr(value: str, /) -> cst.SimpleString:
-    return cst.SimpleString(f"'{value}'")
+    return cst.SimpleString(f'"{value}"')
 
 
 def kwarg_expr(key: str, value: cst.BaseExpression, /) -> cst.Arg:
@@ -525,7 +525,10 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
                 cst.SimpleStatementLine([
                     cst.ImportFrom(
                         cst.Name("typing"),
-                        [cst.ImportAlias(cst.Name(n)) for n in self._add_from_typing],
+                        [
+                            cst.ImportAlias(cst.Name(name))
+                            for name in sorted(self._add_from_typing)
+                        ],
                     ),
                 ]),
             )
@@ -537,7 +540,7 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
                 cst.SimpleStatementLine([
                     cst.ImportFrom(
                         cst.Name("typing_extensions"),
-                        [cst.ImportAlias(cst.Name(n)) for n in add_tpx],
+                        [cst.ImportAlias(cst.Name(name)) for name in sorted(add_tpx)],
                     ),
                 ]),
             )
