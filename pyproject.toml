@@ -33,7 +33,7 @@ dependencies = [
 
 [project.urls]
 Repository = "https://github.com/jorenham/unpy"
-Documentation = "https://github.com/jorenham/unpy?tab=readme-ov-file#mainpy"
+Documentation = "https://github.com/jorenham/unpy?tab=readme-ov-file#unpy"
 Issues = "https://github.com/jorenham/unpy/issues"
 Changelog = "https://github.com/jorenham/unpy/releases"
 Funding = "https://github.com/sponsors/jorenham"
