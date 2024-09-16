@@ -6,11 +6,12 @@ from typing import Annotated, Final
 
 import typer
 
-from .convert import convert
+from .convert import PythonVersion, convert
 
 __all__ = "app", "convert_command"
 
 _PATH_STD: Final = Path("-")
+
 
 app: Final = typer.Typer(
     no_args_is_help=True,
@@ -62,6 +63,14 @@ def convert_command(
             help="Show the version and exit",
         ),
     ] = None,
+    python: Annotated[
+        PythonVersion,
+        typer.Option(
+            "--python",
+            "-P",
+            help="The minimum Python version that should be supported.",
+        ),
+    ] = PythonVersion.PY311,
 ) -> None:
     if str(source) == "-":
         if sys.stdin.isatty():
@@ -80,7 +89,7 @@ def convert_command(
 
         source_in = source.read_text(encoding="utf-8", errors="strict")
 
-    source_out = convert(source_in)
+    source_out = convert(source_in, python)
 
     if str(output) == "-":
         typer.echo(source_out, nl=False)
