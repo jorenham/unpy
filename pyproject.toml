@@ -73,6 +73,7 @@ dev-dependencies = [
   "pre-commit>=3.8.0",
   "pytest>=8.3.3,<9",
   "ruff>=0.6.5,<0.7",
+  "tox>=4.18.1",
 ]
 
 [tool.basedpyright]
@@ -132,3 +133,27 @@ max-bool-expr = 20
 max-branches = 24
 max-locals = 30
 max-statements = 100
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+isolated_build = true
+requires = tox>=4
+envlist =
+    pre-commit
+    py{312,313rc2}
+
+[testenv]
+description = pytest
+skip_install = true
+allowlist_externals = uv
+commands_pre = uv sync --frozen --dev
+commands = uv run pytest
+
+[testenv:pre-commit]
+description = pre-commit
+skip_install = true
+allowlist_externals = uv
+commands_pre = uv sync --frozen --dev
+commands = uv run pre-commit run --all-files
+"""
