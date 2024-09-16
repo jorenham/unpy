@@ -92,20 +92,26 @@ Options:
 ## Features
 
 - Python 3.13 => 3.12
-    - [ ] [PEP 742][PEP742]: `typing.TypeIs` => `typing_extensions._TypeIs_`
-    - [ ] [PEP 705][PEP705]: `typing.ReadOnly` => `typing_extensions.ReadOnly`
-    - [ ] [PEP 702][PEP702]: `warnings.deprecated` => `typing_extensions.deprecated`
+    - [x] [PEP 742][PEP742]: `typing.TypeIs` => `typing_extensions.TypeIs`
+    - [x] [PEP 705][PEP705]: `typing.ReadOnly` => `typing_extensions.ReadOnly`
+    - [x] [PEP 702][PEP702]: `warnings.deprecated` => `typing_extensions.deprecated`
     - [x] [PEP 696][PEP696]: Backport [PEP 695][PEP695] type signatures i.f.f. it
-    includes a type parameter with default using `typing_extensions.TypeVar()`
+    includes a type parameter with default
+    - [x] [PEP 696][PEP696]: `typing.NoDefault` => `typing_extensions.NoDefault`
+    - [x] `typing.get_protocol_members` => `typing_extensions.get_protocol_members`
+    - [x] `typing.is_protocol` => `typing_extensions.is_protocol`
+    - [x] `typing.is_protocol` => `typing_extensions.is_protocol`
+    - [x] `types.CapsuleType` => `typing_extensions.CapsuleType`
+    - [ ] nested `typing.Final` and `typing.ClassVar`
 - Python 3.12 => 3.11
-    - [ ] [PEP 698][PEP698]: `typing.override` => `typing_extensions.override`
+    - [x] [PEP 698][PEP698]: `typing.override` => `typing_extensions.override`
     - [x] [PEP 695][PEP695]: Backport generic functions
     - [x] [PEP 695][PEP695]: Backport generic classes
     - [x] [PEP 695][PEP695]: Backport generic protocols
     - [x] [PEP 695][PEP695]: `type {} = ...` => `{}: TypeAlias = ...` or
-    - [ ] [PEP 695][PEP695]: `typing.TypeAliasType` => `typing_extensions.TypeAliasType`
-    - [ ] [PEP 688][PEP688]: `collections.abc.Buffer` => `typing_extensions.Buffer`
-    - [ ] [PEP 688][PEP688]: `inspect.BufferFlags` => a custom `enum.IntEnum`
+    - [x] [PEP 695][PEP695]: `typing.TypeAliasType` => `typing_extensions.TypeAliasType`
+    - [x] [PEP 688][PEP688]: `collections.abc.Buffer` => `typing_extensions.Buffer`
+    - [ ] [PEP 688][PEP688]: `inspect.BufferFlags` => `int`
     - [ ] Backport subclasses of `path.Path`
 - Python 3.11 => 3.10
     - [ ] [PEP 681][PEP681]: `typing.dataclass_transform` =>
