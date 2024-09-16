@@ -104,3 +104,73 @@ def test_type_alias_params_order_mismatch():
     """)
     pyi_out = convert(pyi_in, python=PythonVersion.PY311)
     assert pyi_out == pyi_expect
+
+
+def test_generic_function():
+    pyi_in = _src("""
+    def spam[T](x: T) -> T: ...
+    """)
+    pyi_expect = _src("""
+    from typing import TypeVar
+    T = TypeVar("T")
+    def spam(x: T) -> T: ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_function_bound():
+    pyi_in = _src("""
+    def f[Z: complex](z: Z) -> Z: ...
+    """)
+    pyi_expect = _src("""
+    from typing import TypeVar
+    Z = TypeVar("Z", bound=complex)
+    def f(z: Z) -> Z: ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_function_constraints():
+    pyi_in = _src("""
+    def f[Z: (int, float, complex)](z: Z) -> Z: ...
+    """)
+    pyi_expect = _src("""
+    from typing import TypeVar
+    Z = TypeVar("Z", int, float, complex)
+    def f(z: Z) -> Z: ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_function_default():
+    pyi_in = _src("""
+    def f[Z: complex = complex](z: Z = ...) -> Z: ...
+    """)
+    pyi_expect = _src("""
+    from typing_extensions import TypeVar
+    Z = TypeVar("Z", bound=complex, default=complex)
+    def f(z: Z = ...) -> Z: ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_function_default_any():
+    pyi_in = _src("""
+    from typing import Any
+
+    def f[Z: complex = Any](z: Z = ...) -> Z: ...
+    """)
+    pyi_expect = _src("""
+    from typing import Any
+    from typing_extensions import TypeVar
+
+    Z = TypeVar("Z", bound=complex, default=complex)
+
+    def f(z: Z = ...) -> Z: ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
