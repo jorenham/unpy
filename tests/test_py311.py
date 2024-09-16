@@ -174,3 +174,39 @@ def test_generic_function_default_any():
     """)
     pyi_out = convert(pyi_in, python=PythonVersion.PY311)
     assert pyi_out == pyi_expect
+
+
+def test_generic_class():
+    pyi_in = _src("""
+    class C[T_contra, T, T_co]: ...
+    """)
+    pyi_expect = _src("""
+    from typing import Generic
+    from typing_extensions import TypeVar
+    T_contra = TypeVar("T_contra", contravariant=True)
+    T = TypeVar("T", infer_variance=True)
+    T_co = TypeVar("T_co", covariant=True)
+    class C(Generic[T_contra, T, T_co]): ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_protocol():
+    pyi_in = _src("""
+    from typing import Protocol
+
+    class C[T_contra, T, T_co](Protocol): ...
+    """)
+    pyi_expect = _src("""
+    from typing import Protocol
+    from typing_extensions import TypeVar
+
+    T_contra = TypeVar("T_contra", contravariant=True)
+    T = TypeVar("T", infer_variance=True)
+    T_co = TypeVar("T_co", covariant=True)
+
+    class C(Protocol[T_contra, T, T_co]): ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
