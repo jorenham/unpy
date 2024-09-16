@@ -38,15 +38,22 @@ def _backport_type_alias(
     name = type_alias_original.name
 
     type_parameters = type_alias_original.type_parameters
-    type_params = type_parameters.params if type_parameters else ()
+    tpars = type_parameters.params if type_parameters else ()
 
-    if len(type_params) > 1:
+    if len(tpars) > 1:
         # TODO: only do this if the order differs between the LHS and RHS.
         type_alias_updated = cst.Assign(
             [cst.AssignTarget(name)],
             cst.Call(
                 cst.Name("TypeAliasType"),
-                [cst.Arg(str_expr(name.value)), cst.Arg(type_alias_original.value)],
+                [
+                    cst.Arg(str_expr(name.value)),
+                    cst.Arg(type_alias_original.value),
+                    kwarg_expr(
+                        "type_params",
+                        cst.Tuple([cst.Element(tpar.param.name) for tpar in tpars]),
+                    ),
+                ],
             ),
         )
     else:
@@ -56,7 +63,7 @@ def _backport_type_alias(
             value=type_alias_original.value,
         )
 
-    if not type_params:
+    if not tpars:
         return cst.SimpleStatementLine(
             [type_alias_updated],
             leading_lines=node.leading_lines,
@@ -64,7 +71,7 @@ def _backport_type_alias(
         )
 
     statements = [
-        *(_backport_tpar(param) for param in type_params),
+        *(_backport_tpar(param) for param in tpars),
         type_alias_updated,
     ]
 
