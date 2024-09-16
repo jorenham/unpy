@@ -283,8 +283,12 @@ class PY311Collector(cst.CSTVisitor):
 
             missing_imports = self.missing_imports_from
             for tpar in tpars.params:
-                import_from = "typing_extensions" if tpar.default else "typing"
-                missing_imports[import_from].add(type(tpar.param).__name__)
+                tname = type(tpar.param).__name__
+                if tpar.default:
+                    missing_imports["typing_extensions"].add(tname)
+                    missing_imports["typing"].discard(tname)
+                elif tname not in missing_imports["typing_extensions"]:
+                    missing_imports["typing"].add(tname)
 
             if len(tpars.params) > 1:
                 # TODO: check the RHS order
@@ -379,7 +383,7 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
         super().__init__()
 
     @property
-    def _del_from_typing(self) -> set[str]:
+    def _del_from_typing(self, /) -> set[str]:
         missing_tpx = self.missing_imports_from["typing_extensions"]
         return {
             name
@@ -387,18 +391,9 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
             if name == as_ and name in missing_tpx
         }
 
-    @property
-    def _add_from_typing(self) -> set[str]:
-        return (
-            self.missing_imports_from["typing"]
-            - set(self.current_imports_from["typing"])
-            - self.missing_imports_from["typing_extensions"]
-        )
-
-    @property
-    def _add_from_typing_extensions(self) -> set[str]:
-        return self.missing_imports_from["typing_extensions"] - set(
-            self.current_imports_from["typing_extensions"],
+    def _add_imports_from(self, module: _TypingModule, /) -> set[str]:
+        return self.missing_imports_from[module] - set(
+            self.current_imports_from[module],
         )
 
     @m.call_if_inside(m.Module([m.ZeroOrMore(m.SimpleStatementLine())]))
@@ -497,11 +492,10 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
 
         if module == "typing":
             names_del = self._del_from_typing
-            names_add = self._add_from_typing
         else:
             assert module == "typing_extensions"
             names_del = set[str]()
-            names_add = self._add_from_typing_extensions
+        names_add = self._add_imports_from(module)
 
         if not names_del and not names_add:
             return updated_node
@@ -520,21 +514,20 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
     ) -> cst.Module:
         new_statements: list[cst.SimpleStatementLine] = []
 
-        if not self.current_imports_from["typing"] and self._add_from_typing:
+        if not self.current_imports_from["typing"] and (
+            add_tp := self._add_imports_from("typing")
+        ):
             new_statements.append(
                 cst.SimpleStatementLine([
                     cst.ImportFrom(
                         cst.Name("typing"),
-                        [
-                            cst.ImportAlias(cst.Name(name))
-                            for name in sorted(self._add_from_typing)
-                        ],
+                        [cst.ImportAlias(cst.Name(name)) for name in sorted(add_tp)],
                     ),
                 ]),
             )
 
         if not self.current_imports_from["typing_extensions"] and (
-            add_tpx := self._add_from_typing_extensions
+            add_tpx := self._add_imports_from("typing_extensions")
         ):
             new_statements.append(
                 cst.SimpleStatementLine([
