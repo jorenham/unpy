@@ -80,7 +80,7 @@ dev-dependencies = [
 ignore = ["**/.venv"]
 include = ["unpy", "examples", "tests"]
 pythonPlatform = "All"
-pythonVersion = "3.12"
+pythonVersion = "3.13"
 venv = ".venv"
 venvPath = "."
 stubPath = "."
@@ -90,7 +90,7 @@ reportUnusedParameter = false  # dupe of ARG001
 executionEnvironments = [
   {root = "examples", pythonVersion = "3.13"},
   {root = "tests", reportPrivateUsage = false},
-  {root = "unpy"}
+  {root = "unpy", pythonVersion = "3.12"}
 ]
 
 [tool.pytest.ini_options]

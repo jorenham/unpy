@@ -1,17 +1,27 @@
 import collections
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import ClassVar, Final, Literal, LiteralString, Self, cast, override
 
 import libcst as cst
 import libcst.matchers as m
+from libcst.metadata import BaseAssignment, Scope, ScopeProvider
 
-type _TypingModule = Literal["typing", "typing_extensions"]
+type _BuiltinModule = Literal[
+    "collections.abc",
+    "inspect",
+    "types",
+    "typing",
+    "typing_extensions",
+    "warnings",
+]
 type _AnyDef = cst.ClassDef | cst.FunctionDef
 type _NodeFlat[N: cst.CSTNode, FN: cst.CSTNode] = N | cst.FlattenSentinel[FN]
+type _NodeOptional[N: cst.CSTNode] = N | cst.RemovalSentinel
 
 __all__ = "PY311Collector", "PY311Transformer"
 
-_TYPING_MODULES: Final = "typing", "typing_extensions"
+_PY313_TYPING_NAMES: Final = frozenset({"NoDefault", "ReadOnly", "TypeIs"})
+_PY312_TYPING_NAMES: Final = frozenset({"TypeAliasType", "override"})
 
 
 def bool_expr(value: bool, /) -> cst.Name:
@@ -32,7 +42,7 @@ def kwarg_expr(key: str, value: cst.BaseExpression, /) -> cst.Arg:
 
 def _backport_type_alias(
     node: cst.SimpleStatementLine,
-) -> cst.SimpleStatementLine | cst.FlattenSentinel[cst.SimpleStatementLine]:
+) -> _NodeFlat[cst.SimpleStatementLine, cst.SimpleStatementLine]:
     assert len(node.body) == 1
     type_alias_original = cast(cst.TypeAlias, node.body[0])
     name = type_alias_original.name
@@ -201,9 +211,21 @@ def _get_typing_baseclass(
 def _workaround_libcst_runtime_typecheck_bug[F: Callable[..., object]](f: F, /) -> F:
     # LibCST crashes if `cst.SimpleStatementLine` is included in the return type
     # annotation.
-    # This works around this bug by hiding the return type annation at runtime.
+    # This workaround circumvents this by hiding the return type annation at runtime.
     del f.__annotations__["return"]
     return f
+
+
+def _as_name(name: cst.Name | cst.Attribute) -> str:
+    match name:
+        case cst.Name(value):
+            return value
+        case cst.Attribute(cst.Name(root), cst.Name(stem)):
+            return f"{root}.{stem}"
+        case cst.Attribute(cst.Attribute() as base, cst.Name(stem)):
+            return f"{_as_name(base)}.{stem}"
+        case _:
+            raise NotImplementedError(f"unhandled name type: {name!r}")
 
 
 class PY311Collector(cst.CSTVisitor):
@@ -212,41 +234,52 @@ class PY311Collector(cst.CSTVisitor):
     classes, and type-aliases.
     """
 
+    METADATA_DEPENDENCIES = (
+        # ParentNodeProvider,
+        # ExpressionContextProvider,
+        ScopeProvider,
+    )
+
+    _scope: Scope
     _stack: Final[collections.deque[str]]
 
-    # {module}
-    current_imports: set[_TypingModule]
-    # {module: {name: alias}}
-    current_imports_from: dict[_TypingModule, dict[str, str]]
-    # {module: name}
-    missing_imports_from: dict[_TypingModule, set[str]]
-
-    # {outer_scope: [typevar-like, ...]}
+    current_imports: dict[_BuiltinModule, str]
+    current_imports_from: dict[_BuiltinModule, dict[str, str]]
+    missing_imports_from: dict[_BuiltinModule, set[str]]
     missing_tvars: dict[str, list[cst.Assign]]
 
     def __init__(self, /) -> None:
         self._stack = collections.deque()
 
-        self.current_imports = set()
-        self.current_imports_from = {m: {} for m in _TYPING_MODULES}
-        self.missing_imports_from = {m: set() for m in _TYPING_MODULES}
-
+        self.current_imports = {}
+        self.current_imports_from = collections.defaultdict(dict)
+        self.missing_imports_from = collections.defaultdict(set)
         self.missing_tvars = collections.defaultdict(list)
 
         super().__init__()
 
+    @property
+    def _globals(self, /) -> Iterable[tuple[str, BaseAssignment]]:
+        for a in self._scope.assignments:
+            yield a.name, a
+
     @override
-    def visit_Import(self, /, node: cst.Import) -> bool | None:
-        # `import typing as something_else` is not yet supported; so explicitly raise
-        # if it's encountered
+    def visit_Module(self, node: cst.Module) -> None:
+        self._scope = cst.ensure_type(self.get_metadata(ScopeProvider, node), Scope)
+
+    @override
+    def visit_Import(self, /, node: cst.Import) -> None:
         for alias in node.names:
             match alias.name:
+                case cst.Name("inspect" | "warnings" as name):
+                    self.current_imports[name] = alias.evaluated_alias or name
                 case cst.Name("typing" | "typing_extensions" as name):
-                    if alias.asname:
-                        raise NotImplementedError(f"import {name} as _")
-                    self.current_imports.add(name)
+                    self.current_imports[name] = alias.evaluated_alias or name
+                    raise NotImplementedError(f"import {name}")
                 case cst.Attribute(cst.Name("collections"), cst.Name("abc")):
-                    raise NotImplementedError("import collections.abc")
+                    name = "collections.abc"
+                    self.current_imports[name] = alias.evaluated_alias or name
+                    raise NotImplementedError(f"import {name}")
                 case _:
                     pass
 
@@ -255,25 +288,86 @@ class PY311Collector(cst.CSTVisitor):
         if node.relative:
             return
 
+        if isinstance(node.names, cst.ImportStar):
+            raise NotImplementedError("from _ import *")
+
+        # TODO: clean this up
         match node.module:
-            case cst.Name("typing" | "typing_extensions" as module):
+            case cst.Name("typing_extensions" as module):
                 pass
+            case cst.Name("typing" as module):
+                for alias in node.names:
+                    # PEP {742, 705, 698, 695}
+                    name = cst.ensure_type(alias.name, cst.Name).value
+                    if name in (_PY313_TYPING_NAMES | _PY312_TYPING_NAMES):
+                        if alias.asname:
+                            raise NotImplementedError(f"from typing import {name} as _")
+                        self.missing_imports_from["typing_extensions"].add(name)
+                        self.missing_imports_from["typing"].discard(name)
+                        break
+            case cst.Name("types" as module):
+                for alias in node.names:
+                    name = cst.ensure_type(alias.name, cst.Name).value
+                    if name == "CapsuleType":
+                        if alias.asname:
+                            raise NotImplementedError(f"from types import {name} as _")
+                        self.missing_imports_from["typing_extensions"].add(name)
+                        break
+            case cst.Name("warnings" as module):
+                for alias in node.names:
+                    # PEP 702
+                    if alias.name.value == "deprecated":
+                        if alias.asname:
+                            raise NotImplementedError(
+                                "from warnings import deprecated as _",
+                            )
+                        self.missing_imports_from["typing_extensions"].add("deprecated")
+                        break
+            case cst.Attribute(cst.Name("collections"), cst.Name("abc")):
+                module = "collections.abc"
+                for alias in node.names:
+                    # PEP 688
+                    if alias.name.value == "Buffer":
+                        if alias.asname:
+                            raise NotImplementedError("from typing import Buffer as _")
+                        self.missing_imports_from["typing_extensions"].add("Buffer")
+                        break
+            case cst.Name("collections") if (
+                any(alias.name.value == "abc" for alias in node.names)
+            ):
+                raise NotImplementedError("from collections import abc")
+            case cst.Name("inspect") if (
+                any(alias.name.value == "BufferFlags" for alias in node.names)
+            ):
+                # `inspect.BufferFlags` (PEP 688) has no backport in `typing_extensions`
+                raise NotImplementedError("from inspect import BufferFlags")
             case _:
                 return
 
         if isinstance(node.names, cst.ImportStar):
             raise NotImplementedError(f"from {module} import *")
 
-        imported = self.current_imports_from[module]
-        for alias in node.names:
-            name = cst.ensure_type(alias.name, cst.Name).value
+        self.current_imports_from[module] |= {
+            (aname := alias.evaluated_name): alias.evaluated_alias or aname
+            for alias in node.names
+        }
 
-            if alias.asname:
-                as_ = cst.ensure_type(alias.asname, cst.Name).value
-            else:
-                as_ = name
-
-            imported[name] = as_
+    @override
+    def visit_Attribute(self, /, node: cst.Attribute) -> None:
+        if (
+            (warnings_alias := self.current_imports.get("warnings"))
+            and m.matches(node.value, m.Name(warnings_alias))
+            and m.matches(node.attr, m.Name("deprecated"))
+        ):
+            # PEP 702
+            raise NotImplementedError("'warnings.deprecated' must be used directly")
+        if (
+            (inspect_alias := self.current_imports.get("inspect"))
+            and m.matches(node.value, m.Name(inspect_alias))
+            and m.matches(node.attr, m.Name("BufferFlags"))
+        ):
+            # `inspect.BufferFlags` (PEP 688) has no backport in `typing_extensions`
+            raise NotImplementedError("inspect.BufferFlags")
 
     @override
     def visit_TypeAlias(self, /, node: cst.TypeAlias) -> None:
@@ -370,37 +464,39 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
 
     _stack: collections.deque[str]
 
-    current_imports: frozenset[_TypingModule]
-    current_imports_from: dict[_TypingModule, dict[str, str]]
-    missing_imports_from: dict[_TypingModule, set[str]]
+    current_imports: dict[_BuiltinModule, str]
+    current_imports_from: dict[_BuiltinModule, dict[str, str]]
+    missing_imports_from: dict[_BuiltinModule, set[str]]
     missing_tvars: dict[str, list[cst.Assign]]
 
     def __init__(
         self,
         /,
         *,
-        current_imports: set[_TypingModule],
-        current_imports_from: dict[_TypingModule, dict[str, str]],
-        missing_imports_from: dict[_TypingModule, set[str]],
+        current_imports: dict[_BuiltinModule, str],
+        current_imports_from: dict[_BuiltinModule, dict[str, str]],
+        missing_imports_from: dict[_BuiltinModule, set[str]],
         missing_tvars: dict[str, list[cst.Assign]],
     ) -> None:
         self._stack = collections.deque()
-        self.current_imports = frozenset(current_imports)
+        self.current_imports = current_imports
         self.current_imports_from = current_imports_from
         self.missing_tvars = missing_tvars
         self.missing_imports_from = missing_imports_from
         super().__init__()
 
-    @property
-    def _del_from_typing(self, /) -> set[str]:
+    def _del_imports_from(self, module: _BuiltinModule, /) -> set[str]:
+        if module == "typing_extensions":
+            return set()
+
         missing_tpx = self.missing_imports_from["typing_extensions"]
         return {
             name
-            for name, as_ in self.current_imports_from["typing"].items()
+            for name, as_ in self.current_imports_from[module].items()
             if name == as_ and name in missing_tpx
         }
 
-    def _add_imports_from(self, module: _TypingModule, /) -> set[str]:
+    def _add_imports_from(self, module: _BuiltinModule, /) -> set[str]:
         return self.missing_imports_from[module] - set(
             self.current_imports_from[module],
         )
@@ -486,32 +582,38 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
 
         return self._prepend_tvars(updated_node)
 
-    @m.call_if_inside(m.SimpleStatementLine([m.OneOf(_MATCH_TYPING_IMPORT)]))
-    @m.leave(_MATCH_TYPING_IMPORT)
-    def transform_typing_import(
+    @override
+    def leave_ImportFrom(
         self,
         /,
-        _: cst.ImportFrom,
+        original_node: cst.ImportFrom,
         updated_node: cst.ImportFrom,
-    ) -> cst.ImportFrom:
-        module = cst.ensure_type(updated_node.module, cst.Name).value
+    ) -> _NodeOptional[cst.ImportFrom]:
+        if updated_node.relative or not updated_node.module:
+            return updated_node
 
-        assert not isinstance(updated_node.names, cst.ImportStar)
-        aliases = updated_node.names
+        module = cast(_BuiltinModule, _as_name(updated_node.module))
 
-        if module == "typing":
-            names_del = self._del_from_typing
-        else:
-            assert module == "typing_extensions"
-            names_del = set[str]()
+        names_del = self._del_imports_from(module)
         names_add = self._add_imports_from(module)
 
-        if not names_del and not names_add:
+        if not (names_del or names_add):
             return updated_node
+
+        aliases = updated_node.names
+        assert not isinstance(aliases, cst.ImportStar)
 
         aliases_new = [a for a in aliases if a.name.value not in names_del]
         aliases_new.extend(cst.ImportAlias(cst.Name(name)) for name in names_add)
         aliases_new.sort(key=lambda a: cst.ensure_type(a.name, cst.Name).value)
+
+        if not aliases_new:
+            return cst.RemoveFromParent()
+
+        # remove trailing comma
+        if isinstance(aliases_new[-1].comma, cst.Comma):
+            aliases_new[-1] = aliases_new[-1].with_changes(comma=None)
+
         return updated_node.with_changes(names=aliases_new)
 
     @override
@@ -521,43 +623,32 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
         original_node: cst.Module,
         updated_node: cst.Module,
     ) -> cst.Module:
-        new_statements: list[cst.SimpleStatementLine] = []
+        return self._update_imports(updated_node)
 
-        if not self.current_imports_from["typing"] and (
-            add_tp := self._add_imports_from("typing")
-        ):
-            new_statements.append(
-                cst.SimpleStatementLine([
-                    cst.ImportFrom(
-                        cst.Name("typing"),
-                        [cst.ImportAlias(cst.Name(name)) for name in sorted(add_tp)],
-                    ),
-                ]),
-            )
-
-        if not self.current_imports_from["typing_extensions"] and (
-            add_tpx := self._add_imports_from("typing_extensions")
-        ):
-            new_statements.append(
-                cst.SimpleStatementLine([
-                    cst.ImportFrom(
-                        cst.Name("typing_extensions"),
-                        [cst.ImportAlias(cst.Name(name)) for name in sorted(add_tpx)],
-                    ),
-                ]),
-            )
+    def _update_imports(self, /, module_node: cst.Module) -> cst.Module:
+        new_statements = [
+            cst.SimpleStatementLine([
+                cst.ImportFrom(
+                    cst.Name(tp_module),
+                    [cst.ImportAlias(cst.Name(n)) for n in sorted(add_imports_from)],
+                ),
+            ])
+            for tp_module in ("typing", "typing_extensions")
+            if not self.current_imports_from[tp_module]
+            and (add_imports_from := self._add_imports_from(tp_module))
+        ]
 
         if not new_statements:
-            return updated_node
+            return module_node
 
-        i_insert = self._new_import_statement_index(updated_node)
+        i_insert = self._new_import_statement_index(module_node)
 
         # NOTE: newlines and other formatting won't be done here; use e.g. ruff instead
-        return updated_node.with_changes(
+        return module_node.with_changes(
             body=[
-                *updated_node.body[:i_insert],
+                *module_node.body[:i_insert],
                 *new_statements,
-                *updated_node.body[i_insert:],
+                *module_node.body[i_insert:],
             ],
         )
 
@@ -615,8 +706,10 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
 
 
 def transform(original: cst.Module, /) -> cst.Module:
+    wrapper = cst.MetadataWrapper(original)
+
     collector = PY311Collector()
-    _ = original.visit(collector)
+    _ = wrapper.visit(collector)
 
     transformer = PY311Transformer.from_collector(collector)
-    return original.visit(transformer)
+    return wrapper.visit(transformer)

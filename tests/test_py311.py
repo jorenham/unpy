@@ -210,3 +210,146 @@ def test_generic_protocol():
     """)
     pyi_out = convert(pyi_in, python=PythonVersion.PY311)
     assert pyi_out == pyi_expect
+
+
+def test_import_override():
+    pyi_in = _src("""
+    from typing import Protocol, override
+
+    class A(Protocol):
+        def f(self, /) -> bool: ...
+
+    class B(A, Protocol):
+        @override
+        def f(self, /) -> int: ...
+    """)
+    pyi_expect = _src("""
+    from typing import Protocol
+    from typing_extensions import override
+
+    class A(Protocol):
+        def f(self, /) -> bool: ...
+
+    class B(A, Protocol):
+        @override
+        def f(self, /) -> int: ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_import_type_alias_type():
+    pyi_in = _src("""
+    from typing import TypeAliasType
+
+    Alias = TypeAliasType("Alias", object)
+    """)
+    pyi_expect = _src("""
+    from typing_extensions import TypeAliasType
+
+    Alias = TypeAliasType("Alias", object)
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_import_buffer():
+    pyi_in = _src("""
+    from collections.abc import Buffer
+
+    def f(x: Buffer, /) -> bytes: ...
+    """)
+    pyi_expect = _src("""
+    from typing_extensions import Buffer
+
+    def f(x: Buffer, /) -> bytes: ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+# TODO: move the following tests to a `py313 => py312` test suite
+
+
+def test_import_type_is():
+    pyi_in = _src("""
+    from typing import TypeIs
+
+    def is_str(x: object, /) -> TypeIs[str]: ...
+    """)
+    pyi_expect = _src("""
+    from typing_extensions import TypeIs
+
+    def is_str(x: object, /) -> TypeIs[str]: ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_import_readonly():
+    pyi_in = _src("""
+    from typing import ReadOnly, TypedDict
+
+    class BoringDict(TypedDict):
+        key: ReadOnly[object]
+    """)
+    pyi_expect = _src("""
+    from typing import TypedDict
+    from typing_extensions import ReadOnly
+
+    class BoringDict(TypedDict):
+        key: ReadOnly[object]
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_import_deprecated():
+    pyi_in = _src("""
+    from warnings import deprecated
+
+    @deprecated("RTFM")
+    def dont_use_me() -> None: ...
+    """)
+    pyi_expect = _src("""
+    from typing_extensions import deprecated
+
+    @deprecated("RTFM")
+    def dont_use_me() -> None: ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_import_no_default():
+    pyi_in = _src("""
+    from typing import NoDefault
+
+    def getname(obj: object, default: NoDefault = ..., /) -> str: ...
+    """)
+    pyi_expect = _src("""
+    from typing_extensions import NoDefault
+
+    def getname(obj: object, default: NoDefault = ..., /) -> str: ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_import_capsule_type():
+    pyi_in = _src("""
+    from types import CapsuleType
+    from typing import Protocol
+
+    class HasArrayStruct(Protocol):
+        __array_struct__: CapsuleType
+    """)
+    pyi_expect = _src("""
+    from typing import Protocol
+    from typing_extensions import CapsuleType
+
+    class HasArrayStruct(Protocol):
+        __array_struct__: CapsuleType
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
