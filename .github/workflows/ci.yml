@@ -30,7 +30,7 @@ jobs:
           version: ${{ env.VERSION_UV }}
 
       - name: uv sync
-        run: uv sync --frozen --dev
+        run: uv sync --frozen
 
       - name: codespell
         run: uv run codespell .
@@ -71,7 +71,7 @@ jobs:
         run: uv python install ${{ matrix.python-version }}
 
       - name: uv sync
-        run: uv sync --frozen --dev
+        run: uv sync --frozen
 
       - name: pytest
         run: uv run pytest
