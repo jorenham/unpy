@@ -124,14 +124,13 @@ Options:
     - [ ] Remove `typing.Any` when used as base class
 - Generated `TypeVar`s
     - [ ] Prefix extracted `TypeVar`s names with `_`
-    - [ ] De-duplicate extracted `TypeVar`s
-    - [ ] Prevent `TypeVar` name clashes (rename or merge)
+    - [x] De-duplicate extracted typevar-likes with same name if equivalent
+    - [ ] Rename extracted typevar-likes with same name if not equivalent
     - [ ] Infer variance of `typing_extensions.TypeVar(..., infer_variance=True)` whose
       name does not end with `_contra`/`_in` (`contravariant=True`) or `_co`/`_out`
       (`covariant=True`)
     - [x] Convert `default=Any` to `default={bound}` or `default=object`
     - [x] Remove `bound=Any` and `bound=object`
-    - [ ] Importing `TypeVar`'s (not recommended)
 - Imports
     - [x] Reuse existing `from typing[_extensions] import {name}` imports instead of
     adding new ones
