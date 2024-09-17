@@ -1,5 +1,6 @@
 import textwrap
 
+import pytest
 from unpy.convert import PythonVersion, convert
 
 
@@ -353,3 +354,23 @@ def test_import_capsule_type():
     """)
     pyi_out = convert(pyi_in, python=PythonVersion.PY311)
     assert pyi_out == pyi_expect
+
+
+def test_subclass_path():
+    pyi_in = _src("""
+    from pathlib import Path
+
+    class MyPath(Path): ...
+    """)
+    with pytest.raises(NotImplementedError):
+        convert(pyi_in, python=PythonVersion.PY311)
+
+
+def test_subclass_pathlib_path():
+    pyi_in = _src("""
+    import pathlib
+
+    class MyPath(pathlib.Path): ...
+    """)
+    with pytest.raises(NotImplementedError):
+        convert(pyi_in, python=PythonVersion.PY311)
