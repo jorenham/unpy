@@ -41,6 +41,7 @@ def test_type_alias_param():
     """)
     pyi_expect = _src("""
     from typing import TypeAlias, TypeVar
+
     T = TypeVar("T")
     Pair: TypeAlias = tuple[T, T]
     """)
@@ -54,6 +55,7 @@ def test_type_alias_param_bound():
     """)
     pyi_expect = _src("""
     from typing import TypeAlias, TypeVar
+
     N = TypeVar("N", bound=int)
     Shape2D: TypeAlias = tuple[N, N]
     """)
@@ -72,6 +74,7 @@ def test_type_alias_param_constraints():
     from typing import TypeAlias, TypeVar
 
     S = TypeVar("S", bytes, str)
+
     PathLike: TypeAlias = S | os.PathLike[S]
     """)
     pyi_out = convert(pyi_in, python=PythonVersion.PY311)
@@ -85,6 +88,7 @@ def test_type_alias_param_default():
     pyi_expect = _src("""
     from typing import TypeAlias
     from typing_extensions import TypeVar
+
     T = TypeVar("T", default=object)
     OneOrMany: TypeAlias = T | tuple[T, ...]
     """)
@@ -99,6 +103,7 @@ def test_type_alias_params_order_mismatch():
     pyi_expect = _src("""
     from typing import TypeVar
     from typing_extensions import TypeAliasType
+
     T1 = TypeVar("T1")
     T0 = TypeVar("T0")
     RPair = TypeAliasType("RPair", tuple[T0, T1], type_params=(T1, T0))
@@ -107,12 +112,38 @@ def test_type_alias_params_order_mismatch():
     assert pyi_out == pyi_expect
 
 
+def test_type_alias_dupe_same():
+    pyi_in = _src("""
+    type Solo[T] = tuple[T]
+    type Pair[T] = tuple[T, T]
+    """)
+    pyi_expect = _src("""
+    from typing import TypeAlias, TypeVar
+
+    T = TypeVar("T")
+    Solo: TypeAlias = tuple[T]
+    Pair: TypeAlias = tuple[T, T]
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_type_alias_dupe_clash():
+    pyi_in = _src("""
+    type Solo[T] = tuple[T]
+    type SoloName[T: str] = tuple[T]
+    """)
+    with pytest.raises(NotImplementedError):
+        convert(pyi_in, python=PythonVersion.PY311)
+
+
 def test_generic_function():
     pyi_in = _src("""
     def spam[T](x: T) -> T: ...
     """)
     pyi_expect = _src("""
     from typing import TypeVar
+
     T = TypeVar("T")
     def spam(x: T) -> T: ...
     """)
@@ -126,6 +157,7 @@ def test_generic_function_bound():
     """)
     pyi_expect = _src("""
     from typing import TypeVar
+
     Z = TypeVar("Z", bound=complex)
     def f(z: Z) -> Z: ...
     """)
@@ -139,6 +171,7 @@ def test_generic_function_constraints():
     """)
     pyi_expect = _src("""
     from typing import TypeVar
+
     Z = TypeVar("Z", int, float, complex)
     def f(z: Z) -> Z: ...
     """)
@@ -152,6 +185,7 @@ def test_generic_function_default():
     """)
     pyi_expect = _src("""
     from typing_extensions import TypeVar
+
     Z = TypeVar("Z", bound=complex, default=complex)
     def f(z: Z = ...) -> Z: ...
     """)
@@ -177,6 +211,40 @@ def test_generic_function_default_any():
     assert pyi_out == pyi_expect
 
 
+def test_generic_function_dupe_same():
+    pyi_in = _src("""
+    def f[T](x: T, /) -> T: ...
+    def g[T](y: T, /) -> T: ...
+    """)
+    pyi_expect = _src("""
+    from typing import TypeVar
+
+    T = TypeVar("T")
+    def f(x: T, /) -> T: ...
+    def g(y: T, /) -> T: ...
+    """)
+    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_function_dupe_clash_bound():
+    pyi_in = _src("""
+    def f[T](x: T, /) -> T: ...
+    def g[T: str](v: T, /) -> T: ...
+    """)
+    with pytest.raises(NotImplementedError):
+        convert(pyi_in, python=PythonVersion.PY311)
+
+
+def test_generic_function_dupe_clash_type():
+    pyi_in = _src("""
+    def f[T](x: T, /) -> T: ...
+    def g[*T](*xs: *T) -> T: ...
+    """)
+    with pytest.raises(NotImplementedError):
+        convert(pyi_in, python=PythonVersion.PY311)
+
+
 def test_generic_class():
     pyi_in = _src("""
     class C[T_contra, T, T_co]: ...
@@ -184,6 +252,7 @@ def test_generic_class():
     pyi_expect = _src("""
     from typing import Generic
     from typing_extensions import TypeVar
+
     T_contra = TypeVar("T_contra", contravariant=True)
     T = TypeVar("T", infer_variance=True)
     T_co = TypeVar("T_co", covariant=True)
