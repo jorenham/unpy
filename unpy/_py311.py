@@ -175,7 +175,11 @@ def _get_typing_baseclass(
     node: cst.ClassDef,
     base_name: LiteralString,
     /,
+    modules: set[str] | None = None,
 ) -> cst.Name | cst.Attribute | None:
+    if modules is None:
+        modules = {"typing", "typing_extensions"}
+
     base_expr_matches: list[cst.Name | cst.Attribute] = []
     for base_arg in node.bases:
         if base_arg.keyword or base_arg.star:
@@ -184,20 +188,19 @@ def _get_typing_baseclass(
         match base_expr := base_arg.value:
             case cst.Name(_name) if _name == base_name:
                 return base_expr
-            case cst.Attribute(
-                cst.Name("typing" | "typing_extensions"),
-                cst.Name(_name),
-            ) if _name == base_name:
+            case cst.Attribute(cst.Name(_module), cst.Name(_name)) if (
+                _name == base_name and _module in modules
+            ):
                 base_expr_matches.append(base_expr)
-            case cst.Subscript(
-                cst.Name(_name)
-                | cst.Attribute(
-                    cst.Name("typing" | "typing_extensions"),
-                    cst.Name(_name),
-                ),
-            ) if _name == base_name:
+            case cst.Subscript(cst.Name(_name)) if _name == base_name:
                 raise NotImplementedError(f"{base_name!r} base class with type params")
+            case cst.Subscript(cst.Attribute(cst.Name(_module), cst.Name(_name))) if (
+                _name == base_name and _module in modules
+            ):
+                base_qname = f"{_module}.{_name}"
+                raise NotImplementedError(f"{base_qname!r} base class with type params")
             case _:
+                # maybe raise here?
                 pass
 
     match base_expr_matches:
@@ -446,6 +449,9 @@ class PY311Collector(cst.CSTVisitor):
     def visit_ClassDef(self, /, node: cst.ClassDef) -> bool | None:
         stack = self._stack
         stack.append(node.name.value)
+
+        if _get_typing_baseclass(node, "Path", modules={"pathlib"}):
+            raise NotImplementedError("subclassing 'pathlib.Path` is not supported")
 
         if not (tpars := node.type_parameters):
             return
