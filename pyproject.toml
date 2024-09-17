@@ -86,6 +86,7 @@ venvPath = "."
 stubPath = "."
 typeCheckingMode = "all"
 reportUnusedParameter = false  # dupe of ARG001
+reportUnusedCallResult = false
 
 executionEnvironments = [
   {root = "examples", pythonVersion = "3.13"},

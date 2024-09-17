@@ -1,10 +1,11 @@
 import collections
-from collections.abc import Callable, Iterable
+import functools
+from collections.abc import Callable
 from typing import ClassVar, Final, Literal, LiteralString, Self, cast, override
 
 import libcst as cst
 import libcst.matchers as m
-from libcst.metadata import BaseAssignment, Scope, ScopeProvider
+from libcst.metadata import Scope, ScopeProvider
 
 type _BuiltinModule = Literal[
     "collections.abc",
@@ -155,9 +156,12 @@ def _backport_tpar(tpar: cst.TypeParam, /, *, variant: bool = False) -> cst.Assi
     if default:
         args.append(kwarg_expr("default", default))
 
+    # TODO: deal with existing `import {tname} as {tname_alias}`
+    tname = type(param).__name__
+
     return cst.Assign(
         targets=[cst.AssignTarget(target=cst.Name(name))],
-        value=cst.Call(func=cst.Name(type(param).__name__), args=args),
+        value=cst.Call(func=cst.Name(tname), args=args),
     )
 
 
@@ -258,10 +262,55 @@ class PY311Collector(cst.CSTVisitor):
 
         super().__init__()
 
-    @property
-    def _globals(self, /) -> Iterable[tuple[str, BaseAssignment]]:
-        for a in self._scope.assignments:
-            yield a.name, a
+    @functools.cached_property
+    def _global_names(self, /) -> set[str]:
+        # NOTE: This is only available after the `cst.Module` has been visited.
+        # NOTE: This doesn't take redefined global names into account.
+        return {assignment.name for assignment in self._scope.assignments}
+
+    def _current_import_alias(
+        self,
+        module: _BuiltinModule,
+        name: str,
+        /,
+        *,
+        typing_extensions: bool = True,
+        allow_alias: bool = False,
+    ) -> str | None:
+        current_imports = self.current_imports_from
+
+        alias = current_imports[module].get(name)
+        if not alias and typing_extensions and module != "typing_extensions":
+            alias = current_imports["typing_extensions"].get(name)
+
+        if alias and not allow_alias and alias != name:
+            raise NotImplementedError(f"importing {name} as a different name")
+
+        if not alias and name in self._global_names:
+            raise NotImplementedError(f"{name} is a global name and cannot be imported")
+
+        return alias
+
+    def _require_typing_import(
+        self,
+        module: _BuiltinModule,
+        name: str,
+        /,
+        *,
+        allow_alias: bool = False,
+    ) -> str:
+        imports = self.missing_imports_from
+        if name in imports["typing_extensions"] or name in imports[module]:
+            return name
+
+        if module == "typing_extensions":
+            # prevent double import
+            imports["typing"].discard(name)
+        elif alias := self._current_import_alias(module, name, allow_alias=allow_alias):
+            return alias
+
+        imports[module].add(name)
+        return name
 
     @override
     def visit_Module(self, node: cst.Module) -> None:
@@ -302,8 +351,7 @@ class PY311Collector(cst.CSTVisitor):
                     if name in (_PY313_TYPING_NAMES | _PY312_TYPING_NAMES):
                         if alias.asname:
                             raise NotImplementedError(f"from typing import {name} as _")
-                        self.missing_imports_from["typing_extensions"].add(name)
-                        self.missing_imports_from["typing"].discard(name)
+                        self._require_typing_import("typing_extensions", name)
                         break
             case cst.Name("types" as module):
                 for alias in node.names:
@@ -311,7 +359,7 @@ class PY311Collector(cst.CSTVisitor):
                     if name == "CapsuleType":
                         if alias.asname:
                             raise NotImplementedError(f"from types import {name} as _")
-                        self.missing_imports_from["typing_extensions"].add(name)
+                        self._require_typing_import("typing_extensions", name)
                         break
             case cst.Name("warnings" as module):
                 for alias in node.names:
@@ -321,7 +369,7 @@ class PY311Collector(cst.CSTVisitor):
                             raise NotImplementedError(
                                 "from warnings import deprecated as _",
                             )
-                        self.missing_imports_from["typing_extensions"].add("deprecated")
+                        self._require_typing_import("typing_extensions", "deprecated")
                         break
             case cst.Attribute(cst.Name("collections"), cst.Name("abc")):
                 module = "collections.abc"
@@ -330,7 +378,7 @@ class PY311Collector(cst.CSTVisitor):
                     if alias.name.value == "Buffer":
                         if alias.asname:
                             raise NotImplementedError("from typing import Buffer as _")
-                        self.missing_imports_from["typing_extensions"].add("Buffer")
+                        self._require_typing_import("typing_extensions", "Buffer")
                         break
             case cst.Name("collections") if (
                 any(alias.name.value == "abc" for alias in node.names)
@@ -382,20 +430,17 @@ class PY311Collector(cst.CSTVisitor):
                 map(_backport_tpar, tpars.params),
             )
 
-            missing_imports = self.missing_imports_from
             for tpar in tpars.params:
-                tname = type(tpar.param).__name__
-                if tpar.default:
-                    missing_imports["typing_extensions"].add(tname)
-                    missing_imports["typing"].discard(tname)
-                elif tname not in missing_imports["typing_extensions"]:
-                    missing_imports["typing"].add(tname)
+                self._require_typing_import(
+                    "typing_extensions" if tpar.default else "typing",
+                    type(tpar.param).__name__,
+                )
 
+            # TODO: additionally require the LHS/RHS order to mismatch here
             if len(tpars.params) > 1:
-                # TODO: check the RHS order
                 import_from, import_name = "typing_extensions", "TypeAliasType"
 
-        self.missing_imports_from[import_from].add(import_name)
+        self._require_typing_import(import_from, import_name)
 
     @override
     def visit_ClassDef(self, /, node: cst.ClassDef) -> bool | None:
@@ -410,26 +455,28 @@ class PY311Collector(cst.CSTVisitor):
 
         if not _get_typing_baseclass(node, "Protocol"):
             # this will require an additional `typing.Generic` base class
-            self.missing_imports_from["typing"].add("Generic")
+            self._require_typing_import("typing", "Generic")
 
         assert len(stack) > 1 or stack[0] not in self.missing_tvars
         self.missing_tvars[stack[0]].extend(
             _backport_tpar(tpar, variant=True) for tpar in tpars.params
         )
 
-        # infer_variance requires typing_extensions
-        imports = self.missing_imports_from
         for tpar in tpars.params:
-            name = tpar.param.name.value
             tname = type(tpar.param).__name__
 
-            if tname in imports["typing_extensions"]:
-                continue
-            if tpar.default or not name.endswith(("_contra", "_in", "_co", "_out")):
-                imports["typing_extensions"].add(tname)
-                imports["typing"].discard(tname)
+            # `default=...` and `TypeVar(..., infer_variance=True)` require importing
+            # from `typing_extensions`
+            name = tpar.param.name.value
+            if tpar.default or (
+                tname == "TypeVar"
+                and not name.endswith(("_contra", "_in", "_co", "_out"))
+            ):
+                tmodule = "typing_extensions"
             else:
-                imports["typing"].add(tname)
+                tmodule = "typing"
+
+            self._require_typing_import(tmodule, tname)
 
     @override
     def leave_ClassDef(self, /, original_node: cst.ClassDef) -> None:
@@ -446,10 +493,11 @@ class PY311Collector(cst.CSTVisitor):
 
         self.missing_tvars[stack[0]].extend(map(_backport_tpar, tpars.params))
 
-        imports = self.missing_imports_from
         for tpar in tpars.params:
-            module = "typing_extensions" if tpar.default else "typing"
-            imports[module].add(type(tpar.param).__name__)
+            self._require_typing_import(
+                "typing_extensions" if tpar.default else "typing",
+                type(tpar.param).__name__,
+            )
 
     @override
     def leave_FunctionDef(self, /, original_node: cst.FunctionDef) -> None:
