@@ -14,9 +14,11 @@ repos:
     rev: v4.6.0
     hooks:
       - id: check-added-large-files
+      - id: check-builtin-literals
       - id: check-case-conflict
       - id: check-docstring-first
       - id: check-executables-have-shebangs
+      # - id: check-illegal-windows-names
       - id: check-json
       - id: check-merge-conflict
       - id: check-shebang-scripts-are-executable
@@ -29,12 +31,17 @@ repos:
       - id: detect-aws-credentials
         args: [--allow-missing-credentials]
       - id: detect-private-key
+      - id: end-of-file-fixer
       - id: fix-byte-order-marker
       - id: forbid-submodules
+      - id: mixed-line-ending
+        args: [--fix=lf]
       - id: name-tests-test
         args: [--pytest-test-first]
       - id: no-commit-to-branch
-        args: [--branch, master]
+        args: [--branch=master]
+      - id: pretty-format-json
+        args: [--autofix]
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
 
