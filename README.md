@@ -121,6 +121,7 @@ Options:
     - [ ] [PEP 673][PEP673]: `typing.Self` => `typing_extensions.Self`
     - [ ] [PEP 655][PEP655]: `typing.[Not]Required` => `typing_extensions.[Not]Required`
     - [ ] [PEP 646][PEP646]: `*Ts` => `typing_extensions.Unpack[Ts]`
+    - [ ] Remove `typing.Any` when used as base class
 - Generated `TypeVar`s
     - [ ] Prefix extracted `TypeVar`s names with `_`
     - [ ] De-duplicate extracted `TypeVar`s
