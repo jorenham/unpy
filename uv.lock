@@ -278,7 +278,7 @@ wheels = [
 
 [[package]]
 name = "tox"
-version = "4.18.1"
+version = "4.19.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "cachetools" },
@@ -291,9 +291,9 @@ dependencies = [
     { name = "pyproject-api" },
     { name = "virtualenv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e1/cc/272e73f90be0f6df89efaf82e5d804b90b4e39ceb0ef1621486bb0e921e8/tox-4.18.1.tar.gz", hash = "sha256:3c0c96bc3a568a5c7e66387a4cfcf8c875b52e09f4d47c9f7a277ec82f1a0b11", size = 181159 }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/f5/bcb4b151c374d7d8c04b24084374f2f6dace0bc988e6a87e3271227e54ec/tox-4.19.0.tar.gz", hash = "sha256:66177d887f9d7ef8eaa9b58b187f7b865fa4c58650086c01336e82c9831e1867", size = 181219 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fb/59/a2ae6f32771cd3de2000618d77b8f77502da822a141e2c797fa4af38a701/tox-4.18.1-py3-none-any.whl", hash = "sha256:35d472032ee1f73fe20c3e0e73d7073a4e85075c86ff02c576f9fc7c6a15a578", size = 156796 },
+    { url = "https://files.pythonhosted.org/packages/5d/8d/050931ea0f53c8f0e36eebcb59aa2d84fb79f290cd5ad2c671fd89a92297/tox-4.19.0-py3-none-any.whl", hash = "sha256:6e20a520db7710f6980b8ec96bde189d6b8cf41b327ec703b03e1a2a447b1aaf", size = 156853 },
 ]
 
 [[package]]
@@ -320,7 +320,7 @@ wheels = [
 
 [[package]]
 name = "unpy"
-version = "0.2.1"
+version = "0.2.2.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "libcst" },
@@ -352,7 +352,7 @@ dev = [
     { name = "pre-commit", specifier = ">=3.8.0,<4" },
     { name = "pytest", specifier = ">=8.3.3,<9" },
     { name = "ruff", specifier = ">=0.6.5,<1" },
-    { name = "tox", specifier = ">=4.18.1,<5" },
+    { name = "tox", specifier = ">=4.19.0,<5" },
 ]
 
 [[package]]

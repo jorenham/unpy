@@ -5,5 +5,8 @@
     "detachhead.basedpyright",
     "ms-python.python"
   ],
-  "unwantedRecommendations": ["ms-python.vscode-pylance"]
+  "unwantedRecommendations": [
+    "ms-python.vscode-pylance",
+    "ms-pyright.pyright"
+  ]
 }

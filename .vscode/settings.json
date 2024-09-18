@@ -6,8 +6,12 @@
     "editor.formatOnSaveMode": "modificationsIfAvailable",
     "editor.formatOnType": true
   },
-  "editor.rulers": [88],
-  "git.branchProtection": ["master"],
+  "editor.rulers": [
+    88
+  ],
+  "git.branchProtection": [
+    "master"
+  ],
   "git.defaultBranchName": "master",
   "git.pullBeforeCheckout": true,
   "python.testing.pytestEnabled": true,

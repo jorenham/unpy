@@ -144,14 +144,15 @@ Options:
     - [x] Backport a single `.pyi` file
     - [ ] Backport all `.pyi` files in package
     - [ ] Configuration options in `pyproject.toml` as `[tools.unpy]`
-    - [ ] Project build tools
-    - [ ] Configurable type-checker integration
-    - [ ] Configurable post processing with e.g. `ruff format`
+    - [ ] add a `--diff` option
 - Integration
     - [ ] File watcher
     - [ ] Pre-commit
     - [ ] VSCode extension
     - [ ] (based)mypy plugin
+    - [ ] Project build tools
+    - [ ] Configurable type-checker integration
+    - [ ] Configurable formatter integration, e.g. `ruff format`
 - Misc
     - [ ] `.py` support
     - [ ] Transform `self` parameters to be positional-only
@@ -159,11 +160,10 @@ Options:
     - [ ] De-duplicate and flatten unions and literals
     - [ ] `type[S] | type[T]` => `type[S | T]`
 - Extended syntax
-    - [ ] Write `_: True | 1 | "a"` instead of `_: Literal[True, 1, "a"]`
-    - [ ] Allow omitting `@overload`
-    - [ ] Intersection types
-    - [ ] Mapped types
-    - [ ] Higher-kinded types
+    - [ ] Bare `Literal`s (as implemented in [basedmypy][BMP-BARE])
+    - [ ] Intersection types (as implemented in [basedmypy][BMP-ISEC])
+    - [ ] Type-mappings, which would remove the need for most overloads.
+    - [ ] Higher-kinded types (see python/typing#548)
 
 [PEP646]: https://peps.python.org/pep-0646/
 [PEP655]: https://peps.python.org/pep-0655/
@@ -178,3 +178,5 @@ Options:
 [PEP702]: https://peps.python.org/pep-0702/
 [PEP705]: https://peps.python.org/pep-0705/
 [PEP742]: https://peps.python.org/pep-0705/
+[BMP-BARE]: https://github.com/KotlinIsland/basedmypy#bare-literals
+[BMP-ISEC]: https://github.com/KotlinIsland/basedmypy#intersection-types
