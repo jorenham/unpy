@@ -119,6 +119,7 @@ preview = true
 select = ["ALL"]
 ignore = [
     "D",        # pydocstyle
+    "UP040",    # non-pep695-type-alias
     "DOC",      # pydoclint
     "S101",     # flake8-bandit: assert
     "FBT",      # flake8-boolean-trap
