@@ -1,7 +1,8 @@
 import textwrap
 
 import pytest
-from unpy.convert import PythonVersion, convert
+from unpy._transform import transform_source
+from unpy._types import Target
 
 
 def _src(source: str, /) -> str:
@@ -16,7 +17,7 @@ def test_type_alias_simple():
     from typing import TypeAlias
     AnyStr: TypeAlias = str | bytes
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -31,7 +32,7 @@ def test_type_alias_simple_typing_import():
 
     AnyBool: TypeAlias = Literal[False, 0, True, 1]
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -45,7 +46,7 @@ def test_type_alias_param():
     T = TypeVar("T")
     Pair: TypeAlias = tuple[T, T]
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -59,7 +60,7 @@ def test_type_alias_param_bound():
     N = TypeVar("N", bound=int)
     Shape2D: TypeAlias = tuple[N, N]
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -77,7 +78,7 @@ def test_type_alias_param_constraints():
 
     PathLike: TypeAlias = S | os.PathLike[S]
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -92,7 +93,7 @@ def test_type_alias_param_default():
     T = TypeVar("T", default=object)
     OneOrMany: TypeAlias = T | tuple[T, ...]
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -108,7 +109,7 @@ def test_type_alias_params_order_mismatch():
     T0 = TypeVar("T0")
     RPair = TypeAliasType("RPair", tuple[T0, T1], type_params=(T1, T0))
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -124,7 +125,7 @@ def test_type_alias_dupe_same():
     Solo: TypeAlias = tuple[T]
     Pair: TypeAlias = tuple[T, T]
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -134,7 +135,7 @@ def test_type_alias_dupe_clash():
     type SoloName[T: str] = tuple[T]
     """)
     with pytest.raises(NotImplementedError):
-        convert(pyi_in, python=PythonVersion.PY311)
+        transform_source(pyi_in, target=Target.PY311)
 
 
 def test_generic_function():
@@ -147,7 +148,7 @@ def test_generic_function():
     T = TypeVar("T")
     def spam(x: T) -> T: ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -161,7 +162,7 @@ def test_generic_function_bound():
     Z = TypeVar("Z", bound=complex)
     def f(z: Z) -> Z: ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -175,7 +176,7 @@ def test_generic_function_constraints():
     Z = TypeVar("Z", int, float, complex)
     def f(z: Z) -> Z: ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -189,7 +190,7 @@ def test_generic_function_default():
     Z = TypeVar("Z", bound=complex, default=complex)
     def f(z: Z = ...) -> Z: ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -207,7 +208,7 @@ def test_generic_function_default_any():
 
     def f(z: Z = ...) -> Z: ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -223,7 +224,7 @@ def test_generic_function_dupe_same():
     def f(x: T, /) -> T: ...
     def g(y: T, /) -> T: ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -233,7 +234,7 @@ def test_generic_function_dupe_clash_bound():
     def g[T: str](v: T, /) -> T: ...
     """)
     with pytest.raises(NotImplementedError):
-        convert(pyi_in, python=PythonVersion.PY311)
+        transform_source(pyi_in, target=Target.PY311)
 
 
 def test_generic_function_dupe_clash_type():
@@ -242,7 +243,7 @@ def test_generic_function_dupe_clash_type():
     def g[*T](*xs: *T) -> T: ...
     """)
     with pytest.raises(NotImplementedError):
-        convert(pyi_in, python=PythonVersion.PY311)
+        transform_source(pyi_in, target=Target.PY311)
 
 
 def test_generic_class():
@@ -258,7 +259,7 @@ def test_generic_class():
     T_co = TypeVar("T_co", covariant=True)
     class C(Generic[T_contra, T, T_co]): ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -278,7 +279,7 @@ def test_generic_protocol():
 
     class C(Protocol[T_contra, T, T_co]): ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -304,7 +305,7 @@ def test_import_override():
         @override
         def f(self, /) -> int: ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -319,7 +320,7 @@ def test_import_type_alias_type():
 
     Alias = TypeAliasType("Alias", object)
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -334,7 +335,7 @@ def test_import_buffer():
 
     def f(x: Buffer, /) -> bytes: ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -352,7 +353,7 @@ def test_import_type_is():
 
     def is_str(x: object, /) -> TypeIs[str]: ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -370,7 +371,7 @@ def test_import_readonly():
     class BoringDict(TypedDict):
         key: ReadOnly[object]
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -387,7 +388,7 @@ def test_import_deprecated():
     @deprecated("RTFM")
     def dont_use_me() -> None: ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -402,7 +403,7 @@ def test_import_no_default():
 
     def getname(obj: object, default: NoDefault = ..., /) -> str: ...
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -421,7 +422,7 @@ def test_import_capsule_type():
     class HasArrayStruct(Protocol):
         __array_struct__: CapsuleType
     """)
-    pyi_out = convert(pyi_in, python=PythonVersion.PY311)
+    pyi_out = transform_source(pyi_in, target=Target.PY311)
     assert pyi_out == pyi_expect
 
 
@@ -432,7 +433,7 @@ def test_subclass_path():
     class MyPath(Path): ...
     """)
     with pytest.raises(NotImplementedError):
-        convert(pyi_in, python=PythonVersion.PY311)
+        transform_source(pyi_in, target=Target.PY311)
 
 
 def test_subclass_pathlib_path():
@@ -442,4 +443,4 @@ def test_subclass_pathlib_path():
     class MyPath(pathlib.Path): ...
     """)
     with pytest.raises(NotImplementedError):
-        convert(pyi_in, python=PythonVersion.PY311)
+        transform_source(pyi_in, target=Target.PY311)

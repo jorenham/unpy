@@ -2,7 +2,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 from unpy._meta import get_version
-from unpy.cli import app
+from unpy.main import app
 
 runner = CliRunner()
 
@@ -24,7 +24,7 @@ def test_stdin_stdout():
 def test_file_stdout(tmp_path: Path):
     d = tmp_path / "unpy"
     d.mkdir()
-    p = d / "test.pyi"
+    p = d / "test_file_stdout.pyi"
     _ = p.write_text(_PYI_CONTENT, encoding="utf-8")
 
     result = runner.invoke(app, [str(p)])
@@ -32,11 +32,22 @@ def test_file_stdout(tmp_path: Path):
     assert result.stdout == _PYI_CONTENT
 
 
+def test_file_stdout_diff(tmp_path: Path):
+    d = tmp_path / "unpy"
+    d.mkdir()
+    p = d / "test_file_stdout_diff.pyi"
+    _ = p.write_text(_PYI_CONTENT, encoding="utf-8")
+
+    result = runner.invoke(app, [str(p), "--diff"])
+    assert result.exit_code == 0
+    assert not result.stdout  # no diff => no output
+
+
 def test_file_file(tmp_path: Path):
     d = tmp_path / "unpy"
     d.mkdir()
-    p_in = d / "test_in.pyi"
-    p_out = d / "test_out.pyi"
+    p_in = d / "test_file_file_in.pyi"
+    p_out = d / "test_file_file_out.pyi"
     _ = p_in.write_text(_PYI_CONTENT, encoding="utf-8")
 
     result = runner.invoke(app, [str(p_in), str(p_out)])

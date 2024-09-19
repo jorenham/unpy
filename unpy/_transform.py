@@ -5,8 +5,10 @@ from typing import Final, Literal, LiteralString, Self, cast, override
 
 import libcst as cst
 import libcst.matchers as m
+from libcst.helpers import get_full_name_for_node_or_raise
 from libcst.metadata import Scope, ScopeProvider
 
+from ._types import Target
 from ._utils import (
     node_hash,
     parse_assign,
@@ -86,7 +88,7 @@ def _backport_type_alias(node: cst.SimpleStatementLine) -> cst.SimpleStatementLi
     # return cst.FlattenSentinel(lines)
 
 
-def _backport_tpar(tpar: cst.TypeParam, /, *, variant: bool = False) -> cst.Assign:
+def _backport_tpar(tpar: cst.TypeParam, /, *, variant: bool = False) -> cst.Assign:  # noqa: C901
     param = tpar.param
     name = param.name.value
 
@@ -212,7 +214,7 @@ def _as_name(name: cst.Name | cst.Attribute) -> str:
             raise NotImplementedError(f"unhandled name type: {name!r}")
 
 
-class PY311Collector(cst.CSTVisitor):
+class TypingCollector(cst.CSTVisitor):
     """
     Collect all PEP-695 type-parameters & required imports in the module's functions,
     classes, and type-aliases.
@@ -348,7 +350,7 @@ class PY311Collector(cst.CSTVisitor):
                     pass
 
     @override
-    def visit_ImportFrom(self, /, node: cst.ImportFrom) -> None:
+    def visit_ImportFrom(self, /, node: cst.ImportFrom) -> None:  # noqa: C901
         if node.relative:
             return
 
@@ -489,46 +491,41 @@ class PY311Collector(cst.CSTVisitor):
         assert name == original_node.name.value
 
 
-def _new_import_statement_index(module_node: cst.Module) -> int:
-    # find the first import statement in the module body
+def _new_typing_import_index(module_node: cst.Module) -> int:
+    """
+    Get the index of the module body at which to insert a new
+    `from typing[_extensions] import _` statement.
+
+    This will look through the imports at the beginning of the module, it will insert:
+    - *after* the last `from {module} import _` statement s.t. `module <= "typing"`
+    - *before* the first `from {module} import _` s.t. `module > "typing"`
+    - *before* the first function-, or class definition
+    - *before* the first compound statement
+    """
     i_insert = 0
-    illegal_direct_imports = frozenset({"typing", "typing_extensions"})
     for i, statement in enumerate(module_node.body):
         if not isinstance(statement, cst.SimpleStatementLine):
-            continue
+            # NOTE: assume that all imports come before any compound statements
+            # TODO: continue if we're in a .py file
+            break
 
-        for node in statement.body:
-            if not isinstance(node, cst.Import | cst.ImportFrom):
+        for stmt in statement.body:
+            if not isinstance(stmt, cst.Import | cst.ImportFrom):
                 continue
 
-            _done = False
-            if isinstance(node, cst.Import):
-                if any(a.name.value in illegal_direct_imports for a in node.names):
-                    raise NotImplementedError("import typing[_extensions]")
-                # insert after all `import ...` statements
-                i_insert = i + 1
-                continue
-
-            if node.relative:
-                # insert before the first relative import
+            if isinstance(stmt, cst.ImportFrom) and (
+                stmt.relative
+                or stmt.module is None
+                or get_full_name_for_node_or_raise(stmt.module.value) > "typing"
+            ):
+                # insert alphabetically, but before any relative imports
                 return i
 
-            match node.module:
-                case cst.Name("typing"):
-                    # insert the (`typing_extensions`) import after `typing`
-                    return i + 1
-                case cst.Name("typing_extensions"):
-                    # insert the (`typing`) import before `typing_extensions`
-                    return i
-                case cst.Name(name):
-                    # otherwise, assume alphabetically sorted on module, and
-                    # and insert to maintain the order
-                    if name > "typing_extensions":
-                        return i
+            i_insert = i + 1
 
-                    i_insert = i + 1
-                case _:
-                    continue
+        if i - i_insert >= 5:
+            # stop after encountering 5 non-import statements after the last import
+            break
     return i_insert
 
 
@@ -541,7 +538,7 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
     missing_tvars: dict[str, list[cst.Assign]]
 
     @classmethod
-    def from_collector(cls, collector: PY311Collector, /) -> Self:
+    def from_collector(cls, collector: TypingCollector, /) -> Self:
         return cls(
             current_imports=collector.current_imports,
             current_imports_from=collector.current_imports_from,
@@ -724,7 +721,7 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
         if not new_statements:
             return updated_node
 
-        i_insert = _new_import_statement_index(updated_node)
+        i_insert = _new_typing_import_index(updated_node)
         return updated_node.with_changes(
             body=[
                 *updated_node.body[:i_insert],
@@ -734,11 +731,17 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
         )
 
 
-def transform(original: cst.Module, /) -> cst.Module:
+def transform_module(original: cst.Module, /) -> cst.Module:
     wrapper = cst.MetadataWrapper(original)
 
-    collector = PY311Collector()
+    collector = TypingCollector()
     _ = wrapper.visit(collector)
 
     transformer = PY311Transformer.from_collector(collector)
     return wrapper.visit(transformer)
+
+
+def transform_source(source: str, /, *, target: Target = Target.PY311) -> str:
+    if target != Target.PY311:
+        raise NotADirectoryError(f"Python {target.value}")  # pyright: ignore[reportUnreachable]
+    return transform_module(cst.parse_module(source)).code

@@ -83,10 +83,12 @@ Arguments:
   [OUTPUT]  Path to the output .pyi file. Defaults to stdout.
 
 Options:
-  -V, --version        Show the version and exit
-  -P, --python [3.11]  The minimum Python version that should be supported.
-                       [default: 3.11]
-  --help               Show this message and exit.
+  --version        Show the version and exit
+  --diff           Show the changes between the input and output in unified
+                   diff format
+  --target [3.11]  The minimum Python version that should be supported.
+                   [default: 3.11]
+  --help           Show this message and exit.
 ```
 
 ## Features
@@ -144,7 +146,7 @@ Options:
     - [x] Backport a single `.pyi` file
     - [ ] Backport all `.pyi` files in package
     - [ ] Configuration options in `pyproject.toml` as `[tools.unpy]`
-    - [ ] add a `--diff` option
+    - [x] add a `--diff` option
 - Integration
     - [ ] File watcher
     - [ ] Pre-commit
