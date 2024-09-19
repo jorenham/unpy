@@ -146,7 +146,7 @@ Options:
     - [x] Backport a single `.pyi` file
     - [ ] Backport all `.pyi` files in package
     - [ ] Configuration options in `pyproject.toml` as `[tools.unpy]`
-    - [ ] add a `--diff` option
+    - [x] add a `--diff` option
 - Integration
     - [ ] File watcher
     - [ ] Pre-commit
