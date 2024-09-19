@@ -2,7 +2,7 @@ from pathlib import Path
 
 from typer.testing import CliRunner
 from unpy._meta import get_version
-from unpy.cli import app
+from unpy.main import app
 
 runner = CliRunner()
 

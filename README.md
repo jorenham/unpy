@@ -76,18 +76,34 @@ pip install unpy
 
 ```console
 $ unpy --help
-Usage: unpy [OPTIONS] SOURCE [OUTPUT]
+Usage: unpy [OPTIONS] COMMAND [ARGS]...
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  convert
+  diff            Show this message and exit.
+```
+
+### `unpy convert`
+
+```console
+$ uv run unpy convert --help
+Usage: unpy convert [OPTIONS] SOURCE [OUTPUT]
 
 Arguments:
   SOURCE    Path to the input .pyi file or '-' to read from stdin.  [required]
   [OUTPUT]  Path to the output .pyi file. Defaults to stdout.
 
 Options:
-  -V, --version        Show the version and exit
   -P, --python [3.11]  The minimum Python version that should be supported.
                        [default: 3.11]
+  -V, --version        Show the version and exit
   --help               Show this message and exit.
 ```
+
+### `unpy diff`
 
 ## Features
 

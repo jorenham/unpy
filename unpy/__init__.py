@@ -2,7 +2,7 @@ from typing import Final, LiteralString
 
 import mainpy
 
-from unpy.cli import app
+from .main import app
 
 __all__ = ("__version__",)
 __version__: LiteralString

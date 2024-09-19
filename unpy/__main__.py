@@ -1,4 +1,4 @@
-from unpy.cli import app
+from unpy.main import app
 
 __all__ = ()
 

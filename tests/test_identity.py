@@ -1,15 +1,15 @@
 import pytest
-from unpy.convert import convert
+from unpy._transform import transform_source
 
 
 @pytest.mark.parametrize("source", ["", "\n", "    \n        \n\n\n"])
 def test_whitespace(source: str) -> None:
-    assert convert(source) == source
+    assert transform_source(source) == source
 
 
 @pytest.mark.parametrize("source", ["# comment", '"""docstring"""'])
 def test_comments(source: str) -> None:
-    assert convert(source) == source
+    assert transform_source(source) == source
 
 
 @pytest.mark.parametrize(
@@ -23,4 +23,4 @@ def test_comments(source: str) -> None:
     ],
 )
 def test_already_compatible(source: str) -> None:
-    assert convert(source) == source
+    assert transform_source(source) == source

@@ -117,7 +117,19 @@ quote-style = "double"
 [tool.ruff.lint]
 preview = true
 select = ["ALL"]
-ignore = ["C", "D", "S101", "FBT", "CPY", "ERA", "EM", "T20", "TD", "FIX", "TRY003"]
+ignore = [
+    "D",        # pydocstyle
+    "DOC",      # pydoclint
+    "S101",     # flake8-bandit: assert
+    "FBT",      # flake8-boolean-trap
+    "CPY",      # flake8-copyright
+    "EM",       # flake8-errmsg
+    "TD",       # flake8-todos
+    "FIX",      # flake8-fixme
+    "ERA",      # eradicate
+    "TRY003",   # tryceratops: raise-vanilla-args
+    "RUF021",   # ruff: parenthesize-chained-operators
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN201", "PLC2701"]
