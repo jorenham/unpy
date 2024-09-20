@@ -91,7 +91,51 @@ Options:
   --help           Show this message and exit.
 ```
 
-## Features
+## Project goals
+
+Here's the alpha version of a prototype of a rough sketch of some initial ideas for the
+potential goals of `unpy`:
+
+1. Towards the past
+    - [x] Get frustrated while [stubbing scipy](https://github.com/jorenham/scipy-stubs)
+    - [ ] **[WIP]** Transpile Python 3.13 `.pyi` stubs to Python 3.10 stubs
+    - [ ] Tooling for stub-only project integration
+    - [ ] Use this in `scipy-stubs`
+2. Towards the future
+    - [ ] Beyond Python: $\text{Unpy} \supset \text{Python}$
+    - [ ] Language support & tooling for *all* `.py` projects
+3. Towards each other
+    - [ ] Unified typechecking: Fast, reasonable, and language-agnostic
+
+## Roadmap
+
+### Tooling
+
+- Conversion
+    - [x] `.pyi`
+    - [ ] `.py`
+    - [x] stdin => stdout
+    - [x] module => module
+    - [ ] package => package
+    - [ ] project => project (including the `pyproject.toml`)
+- Configuration
+    - [x] Unified diffs with `--diff`
+    - [ ] Configuration options in `pyproject.toml` as `[tools.unpy]`
+    - [ ] ...
+- Integration
+    - [ ] File watcher
+    - [ ] Pre-commit
+    - [ ] LSP
+    - [ ] UV
+    - [ ] VSCode extension
+    - [ ] (based)mypy plugin
+    - [ ] Project build tools
+    - [ ] Configurable type-checker integration
+    - [ ] Configurable formatter integration, e.g. `ruff format`
+- Performance
+    - [ ] Limit conversion to changed files
+
+### Language features
 
 - Python 3.13 => 3.12
     - [x] [PEP 742][PEP742]: `typing.TypeIs` => `typing_extensions.TypeIs`
@@ -141,22 +185,7 @@ Options:
     - [ ] Reuse `import {module} as {alias}` if present, e.g. `import typing as tp`
     - [ ] Support for custom `typing` modules (like `[tool.ruff.lint.typing-modules]`)
     - [ ] Support for `from typing[_extensions] import *` (not recommended)
-- Interface
-    - [x] Backport from stdin / to stdout
-    - [x] Backport a single `.pyi` file
-    - [ ] Backport all `.pyi` files in package
-    - [ ] Configuration options in `pyproject.toml` as `[tools.unpy]`
-    - [x] add a `--diff` option
-- Integration
-    - [ ] File watcher
-    - [ ] Pre-commit
-    - [ ] VSCode extension
-    - [ ] (based)mypy plugin
-    - [ ] Project build tools
-    - [ ] Configurable type-checker integration
-    - [ ] Configurable formatter integration, e.g. `ruff format`
-- Misc
-    - [ ] `.py` support
+- Simplification and refactoring
     - [ ] Transform `self` parameters to be positional-only
     - [ ] Use `None` as the default return type
     - [ ] De-duplicate and flatten unions and literals
@@ -165,7 +194,18 @@ Options:
     - [ ] Bare `Literal`s (as implemented in [basedmypy][BMP-BARE])
     - [ ] Intersection types (as implemented in [basedmypy][BMP-ISEC])
     - [ ] Type-mappings, which would remove the need for most overloads.
+    - [ ] Reusable method signature definitions
     - [ ] Higher-kinded types (see python/typing#548)
+    - [ ] Inline callable types
+    - [ ] Annotating side-effects: exceptions, warnings, stdout, stderr, etc.
+    - [ ] Declarative operator overloading syntax
+    - [ ] Literal type unpacking
+
+### Analysis
+
+- [ ] Unified linting, type-checking, and stubtesting
+- [ ] Error messages for humans
+- [ ] ???
 
 [PEP646]: https://peps.python.org/pep-0646/
 [PEP655]: https://peps.python.org/pep-0655/
