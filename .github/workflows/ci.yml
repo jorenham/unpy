@@ -12,7 +12,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  VERSION_UV: "0.4.10"
+  VERSION_UV: "0.4.14"
 
 jobs:
   lint:
