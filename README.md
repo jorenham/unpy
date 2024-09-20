@@ -96,15 +96,15 @@ Options:
 Here's the alpha version of a prototype of a rough sketch of some initial ideas for the
 potential goals of `unpy`:
 
-1.
+1. Towards the past
     - [x] Get frustrated while [stubbing scipy](https://github.com/jorenham/scipy-stubs)
     - [ ] **[WIP]** Transpile Python 3.13 `.pyi` stubs to Python 3.10 stubs
     - [ ] Tooling for stub-only project integration
     - [ ] Use this in `scipy-stubs`
-2.
+2. Towards the future
     - [ ] Beyond Python: $\text{Unpy} \supset \text{Python}$
     - [ ] Language support & tooling for *all* `.py` projects
-3.
+3. Towards each other
     - [ ] Unified typechecking: Fast, reasonable, and language-agnostic
 
 ## Roadmap
