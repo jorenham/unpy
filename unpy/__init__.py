@@ -1,15 +1,11 @@
 from typing import Final, LiteralString
 
-import mainpy
-
 from .main import app
 
 __all__ = ("__version__",)
 __version__: LiteralString
 __author__: Final = "Joren Hammdugolu"
 __email__: Final = "jhammudoglu@gmail.com"
-
-_ = mainpy.main(app)
 
 
 def __getattr__(name: str, /) -> object:
@@ -29,3 +25,7 @@ def __getattr__(name: str, /) -> object:
 
 def __dir__() -> list[str]:
     return list(__all__)
+
+
+if __name__ == "__main__":
+    app()

@@ -27,7 +27,6 @@ classifiers = [
 ]
 dependencies = [
     "libcst>=1.4.0,<2",
-    "mainpy>=1.4.0,<2",
     "typer-slim>=0.12.5,<1",
 ]
 
@@ -68,13 +67,31 @@ packages = ["unpy"]
 
 [tool.uv]
 dev-dependencies = [
-  "basedpyright>=1.17.5,<2",
-  "codespell>=2.3.0,<3",
-  "pre-commit>=3.8.0,<4",
-  "pytest>=8.3.3,<9",
-  "ruff>=0.6.6,<1",
-  "tox>=4.20.0,<5",
+    "basedmypy>=2.6.0,<3",
+    "basedpyright>=1.17.5,<2",
+    "codespell>=2.3.0,<3",
+    "pre-commit>=3.8.0,<4",
+    "pytest>=8.3.3,<9",
+    "ruff>=0.6.6,<1",
+    "tox>=4.20.0,<5",
 ]
+
+[tool.mypy]
+packages = ["unpy", "tests"]
+exclude = ["examples/"]
+python_version = "3.12"
+
+strict = true
+disable_bytearray_promotion = true
+disable_memoryview_promotion = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+# blame pytest for these
+disallow_any_expr = false
+disallow_any_explicit = false
+disallow_any_decorated = false
 
 [tool.pyright]
 ignore = ["**/.venv"]
@@ -89,9 +106,9 @@ reportUnusedParameter = false  # dupe of ARG001
 reportUnusedCallResult = false
 
 executionEnvironments = [
-  {root = "examples", pythonVersion = "3.13"},
-  {root = "tests", reportPrivateUsage = false},
-  {root = "unpy", pythonVersion = "3.12"}
+    {root = "examples", pythonVersion = "3.13"},
+    {root = "tests", reportPrivateUsage = false},
+    {root = "unpy", pythonVersion = "3.12"}
 ]
 
 [tool.pytest.ini_options]

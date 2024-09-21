@@ -38,6 +38,9 @@ jobs:
       - name: ruff check
         run: uv run ruff check --output-format=github
 
+      - name: basedmypy
+        run: uv run mypy
+
       - name: basedpyright
         run: uv run basedpyright
 

@@ -1,6 +1,10 @@
 import enum
+from collections.abc import Callable
 
-__all__ = ("Target",)
+__all__ = "AnyFunction", "Target"
+
+
+type AnyFunction = Callable[..., object]  # type: ignore[no-any-explicit]
 
 
 class Target(enum.StrEnum):
