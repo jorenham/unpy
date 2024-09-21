@@ -2,6 +2,25 @@ version = 1
 requires-python = ">=3.12"
 
 [[package]]
+name = "basedmypy"
+version = "2.6.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "basedtyping" },
+    { name = "mypy-extensions" },
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/76/0f/1eadffe7042cd3f0a4478ac9f050fc23a353f9cf140378fdebe47be4f8f7/basedmypy-2.6.0.tar.gz", hash = "sha256:6ff3607d6e0ef776b9c0c9fdb24706f96783686ec7805c3bc28dd19eb07e5dbd", size = 5390877 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/60/ff/76d8c8b12629d774b87867ae078e133640676522857bdf654ab9cd88b79c/basedmypy-2.6.0-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:590688b27afec8303b8e42043cd7afaa6b60d0ac0bb894a49e16f541378adca8", size = 11333627 },
+    { url = "https://files.pythonhosted.org/packages/94/74/b3f753aeba62ae104daaa52baf202c851d9e374b2f0869de9dd4449436de/basedmypy-2.6.0-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:0dbf81111b710ab8fc4e6ba014061d71bcf5951c405d73220c783bc283691bff", size = 10299699 },
+    { url = "https://files.pythonhosted.org/packages/8a/88/dd5b8d5ff489b701d7d16f887bc8b6c4f8dee849c21aab480b2f47c14c0b/basedmypy-2.6.0-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:e36eeb0f63e02b5ff9828208803b711d755ba493aba5b237832e38a8f4837ad1", size = 12886699 },
+    { url = "https://files.pythonhosted.org/packages/a0/c4/c95bdccf3e45b40cde71132d33dd27f123617ac793f0857df475a54a0224/basedmypy-2.6.0-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:b9819ea425a769b9bdfd8568d8ef6451e4f169f8df39fdb9d5014ee0a4ba15f4", size = 13358166 },
+    { url = "https://files.pythonhosted.org/packages/74/39/6e99b76a5266a48df3bf03f3a98e1e7c6e7fb09efb4e3f6861c530ff30b9/basedmypy-2.6.0-cp312-cp312-win_amd64.whl", hash = "sha256:74cecf63520469d49f360d4226701b4e563bfc911dc84747a9abf67a00133f8b", size = 9954015 },
+    { url = "https://files.pythonhosted.org/packages/12/78/ac0e47575435a88799b028539b7087dc7cf17f0d3c2c58351d093e3e6eaf/basedmypy-2.6.0-py3-none-any.whl", hash = "sha256:329244dfbdd0507e83f6813e1509849e60b75321d193fa156f6151fb564faa17", size = 2658512 },
+]
+
+[[package]]
 name = "basedpyright"
 version = "1.17.5"
 source = { registry = "https://pypi.org/simple" }
@@ -11,6 +30,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/36/c4/c62545e0b298dc97e353100e2dd266565869952a3d082a707171d0af3c37/basedpyright-1.17.5.tar.gz", hash = "sha256:8315f5f2fddfdad162513ef9d9a0b24bb00cc862e8883819ae98a3e28472874d", size = 51769533 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/fb/20/3f799e4ab011de0962269b24e3fb3497a4bd4517c0284695c1fba53bccfe/basedpyright-1.17.5-py3-none-any.whl", hash = "sha256:7ea23951be3620fe4638f6f51625a3d5a65a57ce004e836c608058610153362b", size = 10811503 },
+]
+
+[[package]]
+name = "basedtyping"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/ec/22/f0d1bbd34766de14a6ed5b4d3a09ab9d5de12376655b4d9df9e05d90c5a3/basedtyping-0.1.4.tar.gz", hash = "sha256:8a3ba80d4628eb2f6a205759a8151e6df7341ceba03e5daf6b395fcc873a7967", size = 9776 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b0/5f/c1864efc5423ba25e512bfa7589eb1135885650e116de4eef39078b7ce82/basedtyping-0.1.4-py3-none-any.whl", hash = "sha256:d4832ab7af178e6a5394199725dc55f26e36e1ad5fae68db41b956c1cb99a0d2", size = 9637 },
 ]
 
 [[package]]
@@ -124,12 +155,12 @@ wheels = [
 ]
 
 [[package]]
-name = "mainpy"
-version = "1.4.0"
+name = "mypy-extensions"
+version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/42/02/60b572ff3587599bff94f9cf87aa75f9ae8c0399a3c02fca17a445e21855/mainpy-1.4.0.tar.gz", hash = "sha256:8b4763df867a20daef5226f7477a5b3a56d9f79ef9511f7e54d1f7be06a32de5", size = 7099 }
+sdist = { url = "https://files.pythonhosted.org/packages/98/a4/1ab47638b92648243faf97a5aeb6ea83059cc3624972ab6b8d2316078d3f/mypy_extensions-1.0.0.tar.gz", hash = "sha256:75dbf8955dc00442a438fc4d0666508a9a97b6bd41aa2f0ffe9d2f2725af0782", size = 4433 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c1/d8/5991d85365a9f4c8208497b6a24db55d3d5804d2737dda4a06b43d383e44/mainpy-1.4.0-py3-none-any.whl", hash = "sha256:5c2ea0cf65767f58bb053044e95b05998cdb5f44214783eff6a9dcaf05ecbeba", size = 5698 },
+    { url = "https://files.pythonhosted.org/packages/2a/e2/5d3f6ada4297caebe1a2add3b126fe800c96f56dbe5d1988a2cbe0b267aa/mypy_extensions-1.0.0-py3-none-any.whl", hash = "sha256:4392f6c0eb8a5668a69e23d168ffa70f0be9ccfd32b5cc2d26a34ae5b844552d", size = 4695 },
 ]
 
 [[package]]
@@ -324,12 +355,12 @@ version = "0.2.2.dev0"
 source = { editable = "." }
 dependencies = [
     { name = "libcst" },
-    { name = "mainpy" },
     { name = "typer-slim" },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "basedmypy" },
     { name = "basedpyright" },
     { name = "codespell" },
     { name = "pre-commit" },
@@ -341,12 +372,12 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "libcst", specifier = ">=1.4.0,<2" },
-    { name = "mainpy", specifier = ">=1.4.0,<2" },
     { name = "typer-slim", specifier = ">=0.12.5,<1" },
 ]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "basedmypy", specifier = ">=2.6.0,<3" },
     { name = "basedpyright", specifier = ">=1.17.5,<2" },
     { name = "codespell", specifier = ">=2.3.0,<3" },
     { name = "pre-commit", specifier = ">=3.8.0,<4" },

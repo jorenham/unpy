@@ -38,12 +38,12 @@
             src="https://img.shields.io/badge/pre--commit-enabled-teal?logo=pre-commit"
         />
     </a>
-    <!-- <a href="https://github.com/KotlinIsland/basedmypy">
+    <a href="https://github.com/KotlinIsland/basedmypy">
         <img
             alt="unpy - basedmypy"
             src="https://img.shields.io/badge/basedmypy-checked-fd9002"
         />
-    </a> -->
+    </a>
     <a href="https://detachhead.github.io/basedpyright">
         <img
             alt="unpy - basedpyright"

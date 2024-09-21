@@ -3,6 +3,7 @@
     "charliermarsh.ruff",
     "davidanson.vscode-markdownlint",
     "detachhead.basedpyright",
+    "ms-python.mypy-type-checker",
     "ms-python.python"
   ],
   "unwantedRecommendations": [
