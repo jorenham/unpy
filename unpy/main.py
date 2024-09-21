@@ -12,7 +12,7 @@ import typer
 from ._transform import transform_source
 from ._types import Target
 
-__all__ = ["app"]
+__all__ = ("app",)
 
 
 def _version_callback(*, value: bool) -> None:
@@ -76,7 +76,7 @@ _DEFAULT_TARGET: Final = Target.PY311
 
 def _read_source(source: Path, /) -> str:
     if str(source) == "-":
-        if sys.stdin.isatty():
+        if sys.stdin.isatty():  # type: ignore[no-any-expr]
             typer.echo("Input must be a .pyi file", err=True)
             raise typer.Exit(1)
         with fileinput.input(source) as fp:
@@ -114,7 +114,7 @@ def _echo_diff(file_in: str, src_in: str, file_out: str, src_out: str) -> None:
             case "@" if line[:2] == "@@":
                 bold = dim = True
             case "-" if line[:3] == "---":
-                if file_out == _DEFAULT_OUTPUT:
+                if file_out == str(_DEFAULT_OUTPUT):
                     continue
                 dim = True
             case "+" if line[:3] == "+++":
@@ -143,7 +143,7 @@ app: Final = typer.Typer(
 )
 
 
-@app.command("build")
+@app.command()  # type: ignore[no-any-expr]
 def build(
     source: _ArgumentSource,
     output: _ArgumentOutput = _DEFAULT_OUTPUT,

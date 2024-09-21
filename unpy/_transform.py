@@ -1,14 +1,22 @@
 import collections
 import functools
-from collections.abc import Callable
-from typing import Final, Literal, LiteralString, Self, cast, override
+from typing import (
+    TYPE_CHECKING,
+    Final,
+    Literal,
+    LiteralString,
+    Self,
+    assert_never,
+    cast,
+    override,
+)
 
 import libcst as cst
 import libcst.matchers as m
 from libcst.helpers import get_full_name_for_node_or_raise
 from libcst.metadata import Scope, ScopeProvider
 
-from ._types import Target
+from ._types import AnyFunction, Target
 from ._utils import (
     node_hash,
     parse_assign,
@@ -19,6 +27,9 @@ from ._utils import (
     parse_tuple,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Generator
+
 type _BuiltinModule = Literal[
     "collections.abc",
     "inspect",
@@ -27,10 +38,11 @@ type _BuiltinModule = Literal[
     "typing_extensions",
     "warnings",
 ]
-type _AnyDef = cst.ClassDef | cst.FunctionDef
-type _NodeFlat[N: cst.CSTNode, FN: cst.CSTNode] = N | cst.FlattenSentinel[FN]
-type _NodeOptional[N: cst.CSTNode] = N | cst.RemovalSentinel
+type _Node_01[N: cst.CSTNode] = N | cst.RemovalSentinel
+type _Node_1N[N: cst.CSTNode, NN: cst.CSTNode] = N | cst.FlattenSentinel[N | NN]
 
+
+_MODULES_TYPING: Final[tuple[_BuiltinModule, ...]] = "typing", "typing_extensions"
 
 _PY313_TYPING_NAMES: Final = frozenset({"NoDefault", "ReadOnly", "TypeIs"})
 _PY312_TYPING_NAMES: Final = frozenset({"TypeAliasType", "override"})
@@ -44,6 +56,7 @@ def _backport_type_alias(node: cst.SimpleStatementLine) -> cst.SimpleStatementLi
     type_parameters = alias_original.type_parameters
     tpars = type_parameters.params if type_parameters else ()
 
+    alias_updated: cst.Assign | cst.AnnAssign
     if len(tpars) > 1:
         # TODO: only do this if the order differs between the LHS and RHS.
         alias_updated = parse_assign(
@@ -69,24 +82,6 @@ def _backport_type_alias(node: cst.SimpleStatementLine) -> cst.SimpleStatementLi
         trailing_whitespace=node.trailing_whitespace,
     )
 
-    # statements = [
-    #     *(_backport_tpar(param) for param in tpars),
-    #     alias_updated,
-    # ]
-
-    # lines: list[cst.SimpleStatementLine] = []
-    # for i, statement in enumerate(statements):
-    #     line = cst.SimpleStatementLine([statement])
-    #     if i == 0:
-    #         line = line.with_changes(leading_lines=node.leading_lines)
-    #     elif i == len(statements) - 1:
-    #         line = line.with_changes(
-    #             trailing_whitespace=node.trailing_whitespace,
-    #         )
-    #     lines.append(line)
-
-    # return cst.FlattenSentinel(lines)
-
 
 def _backport_tpar(tpar: cst.TypeParam, /, *, variant: bool = False) -> cst.Assign:  # noqa: C901
     param = tpar.param
@@ -94,6 +89,9 @@ def _backport_tpar(tpar: cst.TypeParam, /, *, variant: bool = False) -> cst.Assi
 
     args: list[cst.BaseExpression] = [parse_str(name)]
     kwargs: dict[str, cst.BaseExpression] = {}
+
+    # otherwise mypy thinks it's undefined later on
+    bound: cst.BaseExpression | None = None
 
     match param:
         case cst.TypeVar(_, bound):
@@ -128,6 +126,9 @@ def _backport_tpar(tpar: cst.TypeParam, /, *, variant: bool = False) -> cst.Assi
         case cst.TypeVarTuple(_) | cst.ParamSpec(_):
             bound = cst.Name("object")
 
+        case _ as wtf:  # pyright: ignore[reportUnnecessaryComparison]
+            assert_never(wtf)
+
     match default := tpar.default:
         case None:
             pass
@@ -144,7 +145,7 @@ def _backport_tpar(tpar: cst.TypeParam, /, *, variant: bool = False) -> cst.Assi
     return parse_assign(name, parse_call(tname, *args, **kwargs))
 
 
-def _remove_tpars[N: _AnyDef](node: N, /) -> N:
+def _remove_tpars[N: (cst.ClassDef, cst.FunctionDef)](node: N, /) -> N:
     if node.type_parameters:
         return node.with_changes(type_parameters=None)
     return node
@@ -194,24 +195,12 @@ def _get_typing_baseclass(
             )
 
 
-def _workaround_libcst_runtime_typecheck_bug[F: Callable[..., object]](f: F, /) -> F:
+def _workaround_libcst_runtime_typecheck_bug[F: AnyFunction](f: F, /) -> F:
     # LibCST crashes if `cst.SimpleStatementLine` is included in the return type
     # annotation.
     # This workaround circumvents this by hiding the return type annation at runtime.
-    del f.__annotations__["return"]
+    del f.__annotations__["return"]  # type: ignore[no-any-expr]
     return f
-
-
-def _as_name(name: cst.Name | cst.Attribute) -> str:
-    match name:
-        case cst.Name(value):
-            return value
-        case cst.Attribute(cst.Name(root), cst.Name(stem)):
-            return f"{root}.{stem}"
-        case cst.Attribute(cst.Attribute() as base, cst.Name(stem)):
-            return f"{_as_name(base)}.{stem}"
-        case _:
-            raise NotImplementedError(f"unhandled name type: {name!r}")
 
 
 class TypingCollector(cst.CSTVisitor):
@@ -323,6 +312,7 @@ class TypingCollector(cst.CSTVisitor):
 
             missing_tvars.append(_backport_tpar(tpar, variant=variant))
 
+            module: _BuiltinModule
             if tpar.default or (variant and tname.endswith(variant_suffixes)):
                 module = "typing_extensions"
             else:
@@ -331,10 +321,13 @@ class TypingCollector(cst.CSTVisitor):
 
     @override
     def visit_Module(self, node: cst.Module) -> None:
-        self._scope = cst.ensure_type(self.get_metadata(ScopeProvider, node), Scope)
+        scope = self.get_metadata(ScopeProvider, node)
+        assert isinstance(scope, Scope)
+        self._scope = scope
 
     @override
     def visit_Import(self, /, node: cst.Import) -> None:
+        name: _BuiltinModule
         for alias in node.names:
             match alias.name:
                 case cst.Name("inspect" | "warnings" as name):
@@ -356,6 +349,8 @@ class TypingCollector(cst.CSTVisitor):
 
         if isinstance(node.names, cst.ImportStar):
             raise NotImplementedError("from _ import *")
+
+        module: _BuiltinModule
 
         # TODO: clean this up
         match node.module:
@@ -436,7 +431,6 @@ class TypingCollector(cst.CSTVisitor):
 
     @override
     def visit_TypeAlias(self, /, node: cst.TypeAlias) -> None:
-        import_from, import_name = "typing", "TypeAlias"
         if tpars := node.type_parameters:
             assert not self._stack
 
@@ -447,12 +441,13 @@ class TypingCollector(cst.CSTVisitor):
 
             # TODO: additionally require the LHS/RHS order to mismatch here
             if len(tpars.params) > 1:
-                import_from, import_name = "typing_extensions", "TypeAliasType"
+                self._require_typing_import("typing_extensions", "TypeAliasType")
+                return
 
-        self._require_typing_import(import_from, import_name)
+        self._require_typing_import("typing", "TypeAlias")
 
     @override
-    def visit_FunctionDef(self, /, node: cst.FunctionDef) -> bool | None:
+    def visit_FunctionDef(self, /, node: cst.FunctionDef) -> None:
         stack = self._stack
         stack.append(node.name.value)
 
@@ -465,7 +460,7 @@ class TypingCollector(cst.CSTVisitor):
         assert name == original_node.name.value
 
     @override
-    def visit_ClassDef(self, /, node: cst.ClassDef) -> bool | None:
+    def visit_ClassDef(self, /, node: cst.ClassDef) -> None:
         stack = self._stack
         stack.append(node.name.value)
         assert len(stack) > 1 or stack[0] not in self.missing_tvars
@@ -584,11 +579,14 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
         /,
         original_node: cst.ImportFrom,
         updated_node: cst.ImportFrom,
-    ) -> _NodeOptional[cst.ImportFrom]:
+    ) -> _Node_01[cst.ImportFrom]:
         if updated_node.relative or not updated_node.module:
             return updated_node
 
-        module = cast(_BuiltinModule, _as_name(updated_node.module))
+        module = cast(
+            _BuiltinModule,
+            get_full_name_for_node_or_raise(updated_node.module),
+        )
 
         names_del = self._del_imports_from(module)
         names_add = self._add_imports_from(module)
@@ -612,16 +610,14 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
 
         return updated_node.with_changes(names=aliases_new)
 
-    def _prepend_tvars[N: _AnyDef](
-        self,
-        /,
-        node: N,
-    ) -> _NodeFlat[N, N | cst.SimpleStatementLine]:
+    def _prepend_tvars[
+        N: (cst.ClassDef, cst.FunctionDef),
+    ](self, /, node: N) -> _Node_1N[N, cst.SimpleStatementLine]:
         if not (tvars := self.missing_tvars.get(node.name.value, [])):
             return node
 
         leading_lines = node.leading_lines or [cst.EmptyLine()]
-        lines = (
+        lines: Generator[cst.SimpleStatementLine] = (
             cst.SimpleStatementLine([tvar], () if i else leading_lines)
             for i, tvar in enumerate(tvars)
         )
@@ -635,7 +631,7 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
         /,
         original_node: cst.SimpleStatementLine,
         updated_node: cst.SimpleStatementLine,
-    ) -> _NodeFlat[cst.SimpleStatementLine, cst.SimpleStatementLine]:
+    ) -> _Node_1N[cst.SimpleStatementLine, cst.SimpleStatementLine]:
         node = _backport_type_alias(updated_node)
 
         alias_original = cst.ensure_type(original_node.body[0], cst.TypeAlias)
@@ -675,7 +671,7 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
         /,
         original_node: cst.ClassDef,
         updated_node: cst.ClassDef,
-    ) -> _NodeFlat[cst.ClassDef, cst.BaseStatement]:
+    ) -> _Node_1N[cst.ClassDef, cst.BaseStatement]:
         stack = self._stack
         stack.pop()
 
@@ -713,7 +709,7 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
                     [cst.ImportAlias(cst.Name(n)) for n in sorted(add_imports_from)],
                 ),
             ])
-            for tp_module in ("typing", "typing_extensions")
+            for tp_module in _MODULES_TYPING
             if not self.current_imports_from[tp_module]
             and (add_imports_from := self._add_imports_from(tp_module))
         ]
@@ -722,13 +718,12 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
             return updated_node
 
         i_insert = _new_typing_import_index(updated_node)
-        return updated_node.with_changes(
-            body=[
-                *updated_node.body[:i_insert],
-                *new_statements,
-                *updated_node.body[i_insert:],
-            ],
-        )
+        updated_body = [
+            *updated_node.body[:i_insert],
+            *new_statements,
+            *updated_node.body[i_insert:],
+        ]
+        return updated_node.with_changes(body=updated_body)
 
 
 def transform_module(original: cst.Module, /) -> cst.Module:
@@ -742,6 +737,6 @@ def transform_module(original: cst.Module, /) -> cst.Module:
 
 
 def transform_source(source: str, /, *, target: Target = Target.PY311) -> str:
-    if target != Target.PY311:
+    if target != Target.PY311:  # type: ignore[redundant-expr]
         raise NotADirectoryError(f"Python {target.value}")  # pyright: ignore[reportUnreachable]
     return transform_module(cst.parse_module(source)).code

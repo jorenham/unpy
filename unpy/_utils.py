@@ -1,7 +1,7 @@
 import functools
 from collections.abc import Iterable
 from itertools import starmap
-from typing import Literal, cast
+from typing import Literal, TypeAlias, cast
 
 import libcst as cst
 from libcst.helpers import filter_node_fields, get_full_name_for_node
@@ -22,11 +22,16 @@ __all__ = [
 type StringPrefix = Literal["", "r", "u", "b", "br", "rb"]
 type StringQuote = Literal["'", '"', "'''", '"""']
 
+# PEP 695 "syntax" breaks `isinstance`
+_AssignTarget: TypeAlias = cst.BaseAssignTargetExpression | str
+_AnyNode: TypeAlias = (
+    cst.CSTNode
+    | cst.RemovalSentinel
+    | cst.FlattenSentinel[cst.CSTNode]
+)  # fmt: skip
 
-def as_module(
-    node: cst.CSTNode | cst.RemovalSentinel | cst.FlattenSentinel[cst.CSTNode],
-    /,
-) -> cst.Module:
+
+def as_module(node: _AnyNode, /) -> cst.Module:
     match node:
         case cst.Module() as module:
             return module
@@ -36,26 +41,32 @@ def as_module(
             return cst.Module([cst.SimpleStatementLine([stmt])])
         case cst.RemovalSentinel():
             return cst.Module([])
-        case cst.FlattenSentinel() as nodes:
+        case cst.FlattenSentinel(nodes=nodes):
             body: list[cst.SimpleStatementLine | cst.BaseCompoundStatement] = []
-            for n in nodes.nodes:
+            for n in nodes:
                 body.extend(as_module(n).body)
             return cst.Module(body)
         case _:
             raise TypeError(type(node))
 
 
+def node_code(node: _AnyNode, /) -> str:
+    if isinstance(node, cst.CSTNode):
+        return get_full_name_for_node(node) or as_module(node).code
+    return as_module(node).code
+
+
 def as_dict(
     node: cst.CSTNode,
     /,
     *,
-    syntax: bool = False,
     defaults: bool = False,
+    syntax: bool = False,
     whitespace: bool = False,
 ) -> dict[str, object]:
     kwargs = {
-        "syntax": syntax,
         "defaults": defaults,
+        "syntax": syntax,
         "whitespace": whitespace,
     }
 
@@ -67,16 +78,12 @@ def as_dict(
         show_whitespace=whitespace,
     ):
         key = field.name
-        match getattr(node, key):
-            case cst.CSTNode() as child:
-                value = as_dict(child, **kwargs)
-            case [*children] if children and isinstance(children[0], cst.CSTNode):
-                value = [
-                    as_dict(child, **kwargs)
-                    for child in cast(list[cst.CSTNode], children)
-                ]
-            case _ as value:  # pyright: ignore[reportAny]
-                pass
+        value: object = getattr(node, key)
+
+        if isinstance(value, cst.CSTNode):
+            value = as_dict(value, **kwargs)
+        elif isinstance(value, list) and value and isinstance(value[0], cst.CSTNode):
+            value = [as_dict(v, **kwargs) for v in cast(list[cst.CSTNode], value)]
 
         out[key] = value
 
@@ -87,36 +94,34 @@ def as_tuple(
     node: cst.CSTNode,
     /,
     *,
-    syntax: bool = False,
     defaults: bool = False,
+    syntax: bool = False,
     whitespace: bool = False,
 ) -> tuple[str, tuple[object, ...]]:
     kwargs = {
-        "syntax": syntax,
         "defaults": defaults,
+        "syntax": syntax,
         "whitespace": whitespace,
     }
 
     out: list[object] = []
     for field in filter_node_fields(
         node,
-        show_syntax=syntax,
         show_defaults=defaults,
+        show_syntax=syntax,
         show_whitespace=whitespace,
     ):
         key = field.name
-        match getattr(node, key):
-            case cst.CSTNode() as child:
-                value = as_tuple(child, **kwargs)
-            case [*children] if children and isinstance(children[0], cst.CSTNode):
-                value = tuple(
-                    as_tuple(child, **kwargs)
-                    for child in cast(list[cst.CSTNode], children)
-                )
-            case [*values]:
-                value = tuple(values)
-            case _ as value:  # pyright: ignore[reportAny]
-                pass
+        value: object = getattr(node, key)
+
+        if isinstance(value, cst.CSTNode):
+            value = as_tuple(value, **kwargs)
+        elif isinstance(value, list):
+            value = tuple(
+                as_tuple(v, **kwargs) if isinstance(v, cst.CSTNode) else v
+                for v in cast(list[object], value)
+            )
+
         out.append(value)
 
     return type(node).__name__, tuple(out)
@@ -126,16 +131,7 @@ def node_hash(node: cst.CSTNode, /, **kwargs: bool) -> int:
     return hash((type(node).__name__, as_tuple(node, **kwargs)))
 
 
-def node_code(
-    node: cst.CSTNode | cst.RemovalSentinel | cst.FlattenSentinel[cst.CSTNode],
-    /,
-) -> str:
-    if isinstance(node, cst.CSTNode):
-        return get_full_name_for_node(node) or as_module(node).code
-    return as_module(node).code
-
-
-@functools.cache
+@functools.cache  # type: ignore[no-any-expr]
 def parse_bool(value: bool | Literal[0, 1], /) -> cst.Name:
     return cst.Name("True" if value else "False")
 
@@ -173,7 +169,7 @@ def parse_tuple(
 
 
 def _name_or_expr[T: cst.BaseExpression](value: T | str, /) -> T | cst.Name:
-    return value if isinstance(value, cst.BaseExpression) else cst.Name(value)
+    return cst.Name(value) if isinstance(value, str) else value
 
 
 def parse_call(
@@ -201,16 +197,12 @@ def parse_subscript(
 
 
 def parse_assign(
-    target: (
-        cst.BaseAssignTargetExpression
-        | str
-        | tuple[cst.BaseAssignTargetExpression | str, ...]
-    ),
+    target: _AssignTarget | tuple[_AssignTarget, ...],
     value: cst.BaseExpression,
     /,
 ) -> cst.Assign:
-    if isinstance(target, cst.BaseAssignTargetExpression | str):
+    if isinstance(target, _AssignTarget):
         targets = [_name_or_expr(target)]
     else:
-        targets = map(_name_or_expr, target)
+        targets = [_name_or_expr(t) for t in target]
     return cst.Assign(list(map(cst.AssignTarget, targets)), value)
