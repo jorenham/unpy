@@ -7,28 +7,32 @@ from typing import (
     LiteralString,
     Self,
     assert_never,
-    cast,
     override,
 )
 
 import libcst as cst
 import libcst.matchers as m
-from libcst.helpers import get_full_name_for_node_or_raise
 from libcst.metadata import Scope, ScopeProvider
 
-from ._types import AnyFunction, Target
-from ._utils import (
+from ._cst import (
+    get_name,
+    get_name_strict,
     node_hash,
     parse_assign,
     parse_bool,
     parse_call,
+    parse_name,
     parse_str,
     parse_subscript,
     parse_tuple,
 )
+from ._types import AnyFunction, PythonVersion
 
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+type _Node_01[N: cst.CSTNode] = N | cst.RemovalSentinel
+type _Node_1N[N: cst.CSTNode, NN: cst.CSTNode] = N | cst.FlattenSentinel[N | NN]
 
 type _BuiltinModule = Literal[
     "collections.abc",
@@ -38,14 +42,18 @@ type _BuiltinModule = Literal[
     "typing_extensions",
     "warnings",
 ]
-type _Node_01[N: cst.CSTNode] = N | cst.RemovalSentinel
-type _Node_1N[N: cst.CSTNode, NN: cst.CSTNode] = N | cst.FlattenSentinel[N | NN]
 
 
 _MODULES_TYPING: Final[tuple[_BuiltinModule, ...]] = "typing", "typing_extensions"
-
-_PY313_TYPING_NAMES: Final = frozenset({"NoDefault", "ReadOnly", "TypeIs"})
-_PY312_TYPING_NAMES: Final = frozenset({"TypeAliasType", "override"})
+_ILLEGAL_BASES: Final = (
+    ("pathlib", "Path"),
+    ("typing", "Any"),
+    ("typing_extensions", "Any"),
+)
+_ILLEGAL_NAMES: Final = "inspect.BufferFlags"
+_TYPEVAR_SUFFIXES_CONTRAVARIANT: Final = "_contra", "_in"
+_TYPEVAR_SUFFIXES_COVARIANT: Final = "_co", "_out"
+_TYPEVAR_SUFFIXES: Final = _TYPEVAR_SUFFIXES_CONTRAVARIANT + _TYPEVAR_SUFFIXES_COVARIANT
 
 
 def _backport_type_alias(node: cst.SimpleStatementLine) -> cst.SimpleStatementLine:
@@ -93,18 +101,21 @@ def _backport_tpar(tpar: cst.TypeParam, /, *, variant: bool = False) -> cst.Assi
     # otherwise mypy thinks it's undefined later on
     bound: cst.BaseExpression | None = None
 
+    # TODO: replace with `if` statements
     match param:
         case cst.TypeVar(_, bound):
             if variant:
-                if name.endswith(("_contra", "_in")):
+                variance = "infer_variance"
+                # TODO: use regexes
+                if name.endswith(_TYPEVAR_SUFFIXES_CONTRAVARIANT):
                     variance = "contravariant"
-                elif name.endswith(("_co", "_out")):
+                elif name.endswith(_TYPEVAR_SUFFIXES_COVARIANT):
                     variance = "covariant"
-                else:
-                    variance = "infer_variance"
                 kwargs[variance] = parse_bool(True)
 
+            # TODO: replace with `if` statements
             match bound:
+                # TODO: resolve `builtins.object` and `typing[_extensions].Any`
                 case (
                     cst.Name("object" | "Any")
                     | cst.Attribute(cst.Name("typing"), cst.Name("Any"))
@@ -129,9 +140,11 @@ def _backport_tpar(tpar: cst.TypeParam, /, *, variant: bool = False) -> cst.Assi
         case _ as wtf:  # pyright: ignore[reportUnnecessaryComparison]
             assert_never(wtf)
 
+    # TODO: replace with `if` statements
     match default := tpar.default:
         case None:
             pass
+        # TODO: use the resolved `typing[_extensions].Any` name
         case cst.Name("Any"):
             default = bound or cst.Name("object")
         case cst.BaseExpression():
@@ -209,82 +222,211 @@ class TypingCollector(cst.CSTVisitor):
     classes, and type-aliases.
     """
 
-    METADATA_DEPENDENCIES = (
-        # ParentNodeProvider,
-        # ExpressionContextProvider,
-        ScopeProvider,
-    )
+    METADATA_DEPENDENCIES = (ScopeProvider,)
 
     _scope: Scope
     _stack: Final[collections.deque[str]]
 
-    current_imports: dict[_BuiltinModule, str]
-    current_imports_from: dict[_BuiltinModule, dict[str, str]]
-    missing_imports_from: dict[_BuiltinModule, set[str]]
+    # {module.name: alias}
+    imports: dict[str, str]
+    imports_del: set[str]
+    imports_add: set[str]
+    _import_cache: dict[str, str | None]
 
-    missing_tvars: dict[str, list[cst.Assign]]  # {root_node_name: [cst.Assign]}
     visited_tvars: dict[str, int]  # {typevar_name: typevar_hash}
+    missing_tvars: dict[str, list[cst.Assign]]  # {root_node_name: [cst.Assign]}
 
     def __init__(self, /) -> None:
         self._stack = collections.deque()
 
-        self.current_imports = {}
-        self.current_imports_from = collections.defaultdict(dict)
-        self.missing_imports_from = collections.defaultdict(set)
+        # TODO: support non-top-level imports with `collections.ChainMap`
+        # TODO: try to refactor this import stuff as a one of those metadata providers
+        self.imports = {}
+        self.imports_del = set()
+        self.imports_add = set()
+        self._import_cache = {}
 
-        self.missing_tvars = collections.defaultdict(list)
+        # TODO: try to refactor this typevar stuff as a one of those metadata providers
         self.visited_tvars = {}
+        self.missing_tvars = collections.defaultdict(list)
 
         super().__init__()
 
     @functools.cached_property
-    def _global_names(self, /) -> set[str]:
+    def global_names(self, /) -> set[str]:
         # NOTE: This is only available after the `cst.Module` has been visited.
         # NOTE: This doesn't take redefined global names into account.
         return {assignment.name for assignment in self._scope.assignments}
 
-    def _current_import_alias(
-        self,
-        module: _BuiltinModule,
-        name: str,
-        /,
-        *,
-        typing_extensions: bool = True,
-        allow_alias: bool = False,
-    ) -> str | None:
-        current_imports = self.current_imports_from
+    def imported_as(self, module: str, name: str, /) -> str | None:
+        """
+        Find the alias or attribute path used to access `{module}.{name}`, or return
+        `None` if not imported.
 
-        alias = current_imports[module].get(name)
-        if not alias and typing_extensions and module != "typing_extensions":
-            alias = current_imports["typing_extensions"].get(name)
+        For example, consider the following `.pyi` code:
 
-        if alias and not allow_alias and alias != name:
-            raise NotImplementedError(f"importing {name} as a different name")
+        ```python
+        import collections as c
+        import collections.abc
+        import typing_extensions as tpx
+        from types import *
+        from typing import Protocol
+        ```
 
-        if not alias and name in self._global_names:
-            raise NotImplementedError(f"{name} is a global name and cannot be imported")
+        Then we'd get the following results
 
-        return alias
+        ```pycon
+        >>> import libcst as cst
+        >>> source = "\n".join([
+        ...     "import collections as col",
+        ...     "import typing_extensions as tpx",
+        ...     "from types import *",
+        ...     "from typing import Protocol",
+        ... ])
+        >>> wrapper = cst.MetadataWrapper(cst.parse_module(source))
+        >>> wrapper.visit(c := TypingCollector())
+        >>> c.resolve_import_name("collections.abc", "Set")
+        'col.abc.Set'
+        >>> c.resolve_import_name("typing_extensions", "Never")
+        'tpx.Never'
+        >>> c.resolve_import_name("typing", "Union")
+        'Union'
+        ```
 
-    def _require_typing_import(
-        self,
-        module: _BuiltinModule,
-        name: str,
-        /,
-        *,
-        allow_alias: bool = False,
-    ) -> str:
-        imports = self.missing_imports_from
-        if name in imports["typing_extensions"] or name in imports[module]:
-            return name
+        Note that in the case of `collections.abc`, it assumed that `abc` is explicitly
+        exported by `collections`.
 
-        if module == "typing_extensions":
-            # prevent double import
-            imports["typing"].discard(name)
-        elif alias := self._current_import_alias(module, name, allow_alias=allow_alias):
+        Todo:
+            - Take the stdlib exports into account (e.g. by including typeshed)
+            - Consider other packages and modules within this project
+            - Support site-packages (those with a `py.typed`, at least)
+            - Prevent shadowing, e.g. with `import builtins; class bool: ...`, prefer
+            `builtins.bool` instead of `bool`
+        """
+
+        assert module
+        # NOTE: this also prevent relative imports, which is fine for now
+        assert all(map(str.isidentifier, module.split("."))), module
+        # NOTE: this also requires non-empty `name`
+        assert name.isidentifier(), name
+
+        fqn = f"{module}.{name}"
+        if fqn in (cache := self._import_cache):
+            return cache[fqn]
+
+        imports = self.imports
+        if alias := imports.get(fqn) or imports.get(f"{module}.*"):
+            cache[fqn] = alias = name if alias == "*" else alias
             return alias
 
-        imports[module].add(name)
+        parts = fqn.split(".")
+        assert len(parts) >= 1, fqn
+        assert all(parts), fqn
+
+        default: str | None = None
+        if module == "builtins" or (
+            # type-check only
+            module in {"typing", "typing_extensions"}
+            and name in {"reveal_type", "reveal_locals"}
+        ):
+            default = name
+            if name not in self.global_names:
+                # if shadowing is a possibility; don't return the builtin name directly,
+                # and prioritize returning an explicit import alias, if any.
+                return name
+
+        # NOTE: This assumes that top-level modules export the submodule, e.g. having a
+        # `import collections as cs` will cause `collections.abc.Buffer` to resolve
+        # as `cs.abc.Buffer`.
+        for i in range(len(parts) - 1, 0, -1):
+            package = ".".join(parts[:i])
+            if alias := imports.get(f"{package}.*") or imports.get(package):
+                alias = ".".join(parts[i:] if alias == "*" else (alias, *parts[i:]))
+                cache[fqn] = alias
+                return alias
+
+        return default
+
+    def _register_import(
+        self,
+        name: str,
+        /,
+        module: str | None = None,
+        alias: str | None = None,
+    ) -> str:
+        fqn = f"{module.removesuffix(".")}.{name}" if module else name
+        alias = alias or name
+
+        if self.imports.setdefault(fqn, alias) != alias:
+            raise NotImplementedError(f"{fqn!r} cannot be import as another name")
+
+        return fqn
+
+    def _register_import_alias(
+        self,
+        node: cst.ImportAlias,
+        /,
+        module: str | None = None,
+    ) -> str:
+        return self._register_import(
+            cst.ensure_type(node.name, cst.Name).value,
+            alias=cst.ensure_type(node.asname, cst.Name).value if node.asname else None,
+            module=module,
+        )
+
+    def _prevent_import(self, module: LiteralString, name: str, /) -> None:
+        """
+        Add the import to `imports_del` if needed, or remove from `imports_add` if
+        previously desired.
+        """
+        fqn = f"{module}.{name}"
+
+        # only consider "direct" imports, i.e. `from {module} import {name}`,
+        # and ignore `from {module} import *` or `import {module}`
+        if self.imported_as(module, name):
+            self.imports_del.add(fqn)
+            assert fqn not in self.imports_add, fqn
+
+        self.imports_add.discard(fqn)
+
+    def _desire_import(
+        self,
+        module: LiteralString,
+        name: str,
+        /,
+        *,
+        has_backport: bool = False,
+    ) -> str:
+        """Add the import to `imports_add` if needed."""
+        assert name.isidentifier(), name
+        fqn = f"{module}.{name}"
+
+        # check if already imported or desired to be imported
+        if alias := self.imported_as(module, name):
+            assert fqn not in self.imports_add
+            return alias
+        if fqn in self.imports_add:
+            return name
+
+        if has_backport:
+            # check if the typing_extensions backport is already desired or imported
+            fqn_tpx = f"typing_extensions.{name}"
+            assert fqn_tpx != fqn
+
+            if fqn_tpx in self.imports_add:
+                return name
+            if alias_tpx := self.imported_as("typing_extensions", name):
+                assert fqn_tpx not in self.imports_add
+                return alias_tpx
+
+        if name in self.global_names:
+            # panic if the import will be shadowed
+            # TODO: use an import alias in this case
+            raise NotImplementedError(
+                f"cannot import {name!r} from {module!r}: {name!r} is already defined",
+            )
+
+        self.imports_add.add(fqn)
         return name
 
     def _register_type_params(
@@ -295,8 +437,6 @@ class TypingCollector(cst.CSTVisitor):
         *,
         variant: bool = False,
     ) -> None:
-        variant_suffixes = "_contra", "_in", "_co", "_out"
-
         visited_tvars = self.visited_tvars
         missing_tvars = self.missing_tvars[name]
         for tpar in tpars.params:
@@ -312,122 +452,46 @@ class TypingCollector(cst.CSTVisitor):
 
             missing_tvars.append(_backport_tpar(tpar, variant=variant))
 
-            module: _BuiltinModule
-            if tpar.default or (variant and tname.endswith(variant_suffixes)):
-                module = "typing_extensions"
+            import_name = type(tpar.param).__name__
+            if tpar.default or (variant and tname.endswith(_TYPEVAR_SUFFIXES)):
+                self._desire_import("typing_extensions", import_name)
+                self._prevent_import("typing", import_name)
             else:
-                module = "typing"
-            self._require_typing_import(module, type(tpar.param).__name__)
+                self._desire_import("typing", import_name, has_backport=True)
+
+    def __check_import_scope(self, /) -> None:
+        if self._stack:
+            raise NotImplementedError("only top-level import statements are supported")
 
     @override
-    def visit_Module(self, node: cst.Module) -> None:
+    def visit_Module(self, /, node: cst.Module) -> None:
         scope = self.get_metadata(ScopeProvider, node)
         assert isinstance(scope, Scope)
         self._scope = scope
 
     @override
     def visit_Import(self, /, node: cst.Import) -> None:
-        name: _BuiltinModule
+        self.__check_import_scope()
+
         for alias in node.names:
-            match alias.name:
-                case cst.Name("inspect" | "warnings" as name):
-                    self.current_imports[name] = alias.evaluated_alias or name
-                case cst.Name("typing" | "typing_extensions" as name):
-                    self.current_imports[name] = alias.evaluated_alias or name
-                    raise NotImplementedError(f"import {name}")
-                case cst.Attribute(cst.Name("collections"), cst.Name("abc")):
-                    name = "collections.abc"
-                    self.current_imports[name] = alias.evaluated_alias or name
-                    raise NotImplementedError(f"import {name}")
-                case _:
-                    pass
+            self._register_import_alias(alias)
 
     @override
-    def visit_ImportFrom(self, /, node: cst.ImportFrom) -> None:  # noqa: C901
-        if node.relative:
-            return
+    def visit_ImportFrom(self, /, node: cst.ImportFrom) -> None:
+        self.__check_import_scope()
+
+        module = "." * len(node.relative)
+        if node.module:
+            name = get_name(node.module)
+            assert name, node.module
+            module += name
 
         if isinstance(node.names, cst.ImportStar):
-            raise NotImplementedError("from _ import *")
+            self._register_import(module, "*")
+            raise NotImplementedError("wildcard imports are not supported")
 
-        module: _BuiltinModule
-
-        # TODO: clean this up
-        match node.module:
-            case cst.Name("typing_extensions" as module):
-                pass
-            case cst.Name("typing" as module):
-                for alias in node.names:
-                    # PEP {742, 705, 698, 695}
-                    name = cst.ensure_type(alias.name, cst.Name).value
-                    if name in (_PY313_TYPING_NAMES | _PY312_TYPING_NAMES):
-                        if alias.asname:
-                            raise NotImplementedError(f"from typing import {name} as _")
-                        self._require_typing_import("typing_extensions", name)
-                        break
-            case cst.Name("types" as module):
-                for alias in node.names:
-                    name = cst.ensure_type(alias.name, cst.Name).value
-                    if name == "CapsuleType":
-                        if alias.asname:
-                            raise NotImplementedError(f"from types import {name} as _")
-                        self._require_typing_import("typing_extensions", name)
-                        break
-            case cst.Name("warnings" as module):
-                for alias in node.names:
-                    # PEP 702
-                    if alias.name.value == "deprecated":
-                        if alias.asname:
-                            raise NotImplementedError(
-                                "from warnings import deprecated as _",
-                            )
-                        self._require_typing_import("typing_extensions", "deprecated")
-                        break
-            case cst.Attribute(cst.Name("collections"), cst.Name("abc")):
-                module = "collections.abc"
-                for alias in node.names:
-                    # PEP 688
-                    if alias.name.value == "Buffer":
-                        if alias.asname:
-                            raise NotImplementedError("from typing import Buffer as _")
-                        self._require_typing_import("typing_extensions", "Buffer")
-                        break
-            case cst.Name("collections") if (
-                any(alias.name.value == "abc" for alias in node.names)
-            ):
-                raise NotImplementedError("from collections import abc")
-            case cst.Name("inspect") if (
-                any(alias.name.value == "BufferFlags" for alias in node.names)
-            ):
-                # `inspect.BufferFlags` (PEP 688) has no backport in `typing_extensions`
-                raise NotImplementedError("from inspect import BufferFlags")
-            case _:
-                return
-
-        if isinstance(node.names, cst.ImportStar):
-            raise NotImplementedError(f"from {module} import *")
-
-        self.current_imports_from[module] |= {
-            (aname := alias.evaluated_name): alias.evaluated_alias or aname
-            for alias in node.names
-        }
-
-    @override
-    def visit_Attribute(self, /, node: cst.Attribute) -> None:
-        if (
-            (warnings_alias := self.current_imports.get("warnings"))
-            and m.matches(node.value, m.Name(warnings_alias))
-            and m.matches(node.attr, m.Name("deprecated"))
-        ):
-            # PEP 702
-            raise NotImplementedError("'warnings.deprecated' must be used directly")
-        if (
-            (inspect_alias := self.current_imports.get("inspect"))
-            and m.matches(node.value, m.Name(inspect_alias))
-            and m.matches(node.attr, m.Name("BufferFlags"))
-        ):
-            # `inspect.BufferFlags` (PEP 688) has no backport in `typing_extensions`
-            raise NotImplementedError("inspect.BufferFlags")
+        for alias in node.names:
+            self._register_import_alias(alias, module=module)
 
     @override
     def visit_TypeAlias(self, /, node: cst.TypeAlias) -> None:
@@ -441,23 +505,29 @@ class TypingCollector(cst.CSTVisitor):
 
             # TODO: additionally require the LHS/RHS order to mismatch here
             if len(tpars.params) > 1:
-                self._require_typing_import("typing_extensions", "TypeAliasType")
+                self._desire_import("typing_extensions", "TypeAliasType")
                 return
 
-        self._require_typing_import("typing", "TypeAlias")
+        self._desire_import("typing", "TypeAlias")
 
     @override
     def visit_FunctionDef(self, /, node: cst.FunctionDef) -> None:
-        stack = self._stack
-        stack.append(node.name.value)
+        self._stack.append(node.name.value)
 
         if tpars := node.type_parameters:
-            self._register_type_params(stack[0], tpars)
+            self._register_type_params(self._stack[0], tpars)
 
     @override
     def leave_FunctionDef(self, /, original_node: cst.FunctionDef) -> None:
-        name = self._stack.pop()
-        assert name == original_node.name.value
+        _ = self._stack.pop()
+
+    @functools.cached_property
+    def _illegal_bases(self, /) -> frozenset[str]:
+        return frozenset({
+            base_name
+            for module, name in _ILLEGAL_BASES
+            if (base_name := self.imported_as(module, name))
+        })
 
     @override
     def visit_ClassDef(self, /, node: cst.ClassDef) -> None:
@@ -465,25 +535,41 @@ class TypingCollector(cst.CSTVisitor):
         stack.append(node.name.value)
         assert len(stack) > 1 or stack[0] not in self.missing_tvars
 
-        if _get_typing_baseclass(node, "Path", modules={"pathlib"}):
-            raise NotImplementedError("subclassing 'pathlib.Path` is not supported")
+        bases = {
+            base_name
+            for arg in node.bases
+            if not arg.keyword and not arg.star and (base_name := get_name(arg.value))
+        }
+        if bases and (illegal := bases & self._illegal_bases):
+            if len(illegal) == 1:
+                raise NotImplementedError(f"{illegal.pop()!r} as base class")
+            raise ExceptionGroup(
+                "unsupported base classes",
+                [NotImplementedError(f"{base!r} as base class") for base in illegal],
+            )
 
         if not (tpars := node.type_parameters):
             return
 
-        if _get_typing_baseclass(node, "Generic"):
-            raise TypeError("can't use type params with a `Generic` base class")
+        if bases:
+            if not (name_generic := self.imported_as("typing", "Generic")):
+                name_generic = self.imported_as("typing_extensions", "Generic")
 
-        if not _get_typing_baseclass(node, "Protocol"):
-            # this will require an additional `typing.Generic` base class
-            self._require_typing_import("typing", "Generic")
+            if name_generic:
+                if name_generic in bases:
+                    raise TypeError(f"type parameters + {name_generic!r} base class")
+            else:
+                if not (name_protocol := self.imported_as("typing", "Protocol")):
+                    name_protocol = self.imported_as("typing_extensions", "Protocol")
+
+                if not (name_protocol and name_protocol in bases):
+                    self._desire_import("typing", "Generic", has_backport=True)
 
         self._register_type_params(stack[0], tpars, variant=True)
 
     @override
     def leave_ClassDef(self, /, original_node: cst.ClassDef) -> None:
-        name = self._stack.pop()
-        assert name == original_node.name.value
+        _ = self._stack.pop()
 
 
 def _new_typing_import_index(module_node: cst.Module) -> int:
@@ -508,70 +594,41 @@ def _new_typing_import_index(module_node: cst.Module) -> int:
             if not isinstance(stmt, cst.Import | cst.ImportFrom):
                 continue
 
-            if isinstance(stmt, cst.ImportFrom) and (
-                stmt.relative
-                or stmt.module is None
-                or get_full_name_for_node_or_raise(stmt.module.value) > "typing"
-            ):
-                # insert alphabetically, but before any relative imports
-                return i
+            if isinstance(stmt, cst.ImportFrom):
+                if stmt.relative or stmt.module is None:
+                    return i
+                if get_name_strict(stmt.module) > "typing":
+                    # insert alphabetically, but before any relative imports
+                    return i + 1
 
             i_insert = i + 1
 
-        if i - i_insert >= 5:
-            # stop after encountering 5 non-import statements after the last import
-            break
+        # if i - i_insert >= 5:
+        #     # stop after encountering 5 non-import statements after the last import
+        #     break
     return i_insert
 
 
 class PY311Transformer(m.MatcherDecoratableTransformer):
-    _stack: collections.deque[str]
-
-    current_imports: dict[_BuiltinModule, str]
-    current_imports_from: dict[_BuiltinModule, dict[str, str]]
-    missing_imports_from: dict[_BuiltinModule, set[str]]
-    missing_tvars: dict[str, list[cst.Assign]]
+    collector: Final[TypingCollector]
+    _stack: Final[collections.deque[str]]
 
     @classmethod
     def from_collector(cls, collector: TypingCollector, /) -> Self:
-        return cls(
-            current_imports=collector.current_imports,
-            current_imports_from=collector.current_imports_from,
-            missing_imports_from=collector.missing_imports_from,
-            missing_tvars=collector.missing_tvars,
-        )
+        return cls(collector)
 
-    def __init__(
-        self,
-        /,
-        *,
-        current_imports: dict[_BuiltinModule, str],
-        current_imports_from: dict[_BuiltinModule, dict[str, str]],
-        missing_imports_from: dict[_BuiltinModule, set[str]],
-        missing_tvars: dict[str, list[cst.Assign]],
-    ) -> None:
+    def __init__(self, /, collector: TypingCollector) -> None:
+        assert collector.imports_del <= set(collector.imports), collector.imports_del
+        assert not collector.imports_add & set(collector.imports), collector.imports_add
+
+        self.collector = collector
         self._stack = collections.deque()
-        self.current_imports = current_imports
-        self.current_imports_from = current_imports_from
-        self.missing_imports_from = missing_imports_from
-        self.missing_tvars = missing_tvars
+
         super().__init__()
 
-    def _del_imports_from(self, module: _BuiltinModule, /) -> set[str]:
-        if module == "typing_extensions":
-            return set()
-
-        missing_tpx = self.missing_imports_from["typing_extensions"]
-        return {
-            name
-            for name, as_ in self.current_imports_from[module].items()
-            if name == as_ and name in missing_tpx
-        }
-
-    def _add_imports_from(self, module: _BuiltinModule, /) -> set[str]:
-        return self.missing_imports_from[module] - set(
-            self.current_imports_from[module],
-        )
+    @property
+    def missing_tvars(self, /) -> dict[str, list[cst.Assign]]:
+        return self.collector.missing_tvars
 
     @override
     def leave_ImportFrom(
@@ -580,26 +637,36 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
         original_node: cst.ImportFrom,
         updated_node: cst.ImportFrom,
     ) -> _Node_01[cst.ImportFrom]:
-        if updated_node.relative or not updated_node.module:
+        """Add or remove imports from this `from {module} import {*names}` statement."""
+        if updated_node.relative or isinstance(updated_node.names, cst.ImportStar):
+            return updated_node
+        assert updated_node.module
+
+        col = self.collector
+        fqn_del, fqn_add = col.imports_del, col.imports_add
+        if not fqn_del and not fqn_add:
             return updated_node
 
-        module = cast(
-            _BuiltinModule,
-            get_full_name_for_node_or_raise(updated_node.module),
-        )
+        module = get_name_strict(updated_node.module)
+        assert module
+        assert all(map(str.isidentifier, module.split("."))), module
 
-        names_del = self._del_imports_from(module)
-        names_add = self._add_imports_from(module)
+        prefix = f"{module}."
+        i0 = len(prefix)
+        names_del = {fqn[i0:]: fqn for fqn in fqn_del if fqn.startswith(prefix)}
+        names_add = {fqn[i0:]: fqn for fqn in fqn_add if fqn.startswith(prefix)}
 
         if not (names_del or names_add):
             return updated_node
 
+        assert all(map(str.isidentifier, names_del)), names_add
+        assert all(map(str.isidentifier, names_add)), names_add
+
         aliases = updated_node.names
-        assert not isinstance(aliases, cst.ImportStar)
 
         aliases_new = [a for a in aliases if a.name.value not in names_del]
         aliases_new.extend(cst.ImportAlias(cst.Name(name)) for name in names_add)
-        aliases_new.sort(key=lambda a: cst.ensure_type(a.name, cst.Name).value)
+        aliases_new.sort(key=lambda a: get_name_strict(a.name))
 
         if not aliases_new:
             return cst.RemoveFromParent()
@@ -702,16 +769,34 @@ class PY311Transformer(m.MatcherDecoratableTransformer):
         original_node: cst.Module,
         updated_node: cst.Module,
     ) -> cst.Module:
+        if not (imports_add := self.collector.imports_add):
+            return updated_node
+
+        # all modules that were seen in the `from {module} import ...` statements
+        from_modules = {
+            fqn.rsplit(".", 1)[0]
+            for fqn, alias in self.collector.imports.items()
+            if fqn != alias
+        }
+
+        # group the to-add imports statements per module like {module: [name, ...]}
+        imports_from_add: dict[str, list[str]] = collections.defaultdict(list)
+        for fqn in imports_add:
+            module, name = fqn.rsplit(".", 1)
+            if module not in from_modules:
+                imports_from_add[module].append(name)
+
+        if not imports_from_add:
+            return updated_node
+
         new_statements = [
             cst.SimpleStatementLine([
                 cst.ImportFrom(
-                    cst.Name(tp_module),
-                    [cst.ImportAlias(cst.Name(n)) for n in sorted(add_imports_from)],
+                    parse_name(module),
+                    [cst.ImportAlias(cst.Name(n)) for n in sorted(names)],
                 ),
             ])
-            for tp_module in _MODULES_TYPING
-            if not self.current_imports_from[tp_module]
-            and (add_imports_from := self._add_imports_from(tp_module))
+            for module, names in imports_from_add.items()
         ]
 
         if not new_statements:
@@ -736,7 +821,12 @@ def transform_module(original: cst.Module, /) -> cst.Module:
     return wrapper.visit(transformer)
 
 
-def transform_source(source: str, /, *, target: Target = Target.PY311) -> str:
-    if target != Target.PY311:  # type: ignore[redundant-expr]
-        raise NotADirectoryError(f"Python {target.value}")  # pyright: ignore[reportUnreachable]
+def transform_source(
+    source: str,
+    /,
+    *,
+    target: PythonVersion = PythonVersion.PY311,
+) -> str:
+    if target != PythonVersion.PY311:
+        raise NotADirectoryError(f"Python {target}")
     return transform_module(cst.parse_module(source)).code

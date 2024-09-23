@@ -1,59 +1,110 @@
 import functools
 from collections.abc import Iterable
 from itertools import starmap
-from typing import Literal, TypeAlias, cast
+from typing import Literal, TypeAlias, TypedDict, Unpack, cast, overload
 
 import libcst as cst
-from libcst.helpers import filter_node_fields, get_full_name_for_node
+from libcst.helpers import filter_node_fields
+
+from ._types import Encoding, Indent, LineEnding, StringPrefix, StringQuote
 
 __all__ = [
     "as_dict",
-    "as_module",
-    "node_code",
+    "get_code",
+    "get_name",
+    "get_name_strict",
     "node_hash",
     "parse_assign",
     "parse_bool",
     "parse_call",
     "parse_kwarg",
+    "parse_name",
     "parse_str",
     "parse_tuple",
 ]
 
-type StringPrefix = Literal["", "r", "u", "b", "br", "rb"]
-type StringQuote = Literal["'", '"', "'''", '"""']
 
 # PEP 695 "syntax" breaks `isinstance`
 _AssignTarget: TypeAlias = cst.BaseAssignTargetExpression | str
-_AnyNode: TypeAlias = (
-    cst.CSTNode
-    | cst.RemovalSentinel
-    | cst.FlattenSentinel[cst.CSTNode]
-)  # fmt: skip
 
 
-def as_module(node: _AnyNode, /) -> cst.Module:
-    match node:
-        case cst.Module() as module:
-            return module
-        case cst.SimpleStatementLine() | cst.BaseCompoundStatement() as stmt:
-            return cst.Module([stmt])
-        case cst.BaseSmallStatement() as stmt:
-            return cst.Module([cst.SimpleStatementLine([stmt])])
-        case cst.RemovalSentinel():
-            return cst.Module([])
-        case cst.FlattenSentinel(nodes=nodes):
-            body: list[cst.SimpleStatementLine | cst.BaseCompoundStatement] = []
-            for n in nodes:
-                body.extend(as_module(n).body)
-            return cst.Module(body)
-        case _:
-            raise TypeError(type(node))
+class _ModuleKwargs(TypedDict):
+    encoding: Encoding
+    default_indent: Indent
+    default_newline: LineEnding
+    has_trailing_newline: bool
 
 
-def node_code(node: _AnyNode, /) -> str:
-    if isinstance(node, cst.CSTNode):
-        return get_full_name_for_node(node) or as_module(node).code
-    return as_module(node).code
+def get_code(
+    node: cst.CSTNode,
+    /,
+    **kwargs: Unpack[_ModuleKwargs],
+) -> str:
+    """
+    Generate the code of the given node.
+
+    Note:
+        For simple nodes like `cst.Name` and `cst.Attribute` this can be ~50x slower
+        than `get_name()`.
+    """
+    if isinstance(node, cst.Module):
+        return node.code
+
+    return cst.Module([], **kwargs).code_for_node(node)
+
+
+@overload
+def get_name(
+    node: str
+    | cst.Name
+    | cst.TypeParam
+    | cst.TypeAlias
+    | cst.FunctionDef
+    | cst.ClassDef
+    | cst.Ellipsis,
+    /,
+) -> str: ...
+@overload
+def get_name(node: cst.CSTNode, /) -> str | None: ...
+def get_name(node: str | cst.CSTNode, /) -> str | None:  # noqa: C901, PLR0911
+    if isinstance(node, str):
+        return node
+    if isinstance(node, cst.Name):
+        return node.value
+    if isinstance(node, cst.Attribute):
+        # avoid excess recursion by looking (at most) 2 steps ahead
+        attr = node.attr.value
+        if isinstance(b0 := node.value, cst.Name):
+            return f"{b0.value}.{attr}"
+        if isinstance(b0, cst.Attribute):
+            if isinstance(b1 := b0.value, cst.Name):
+                return f"{b1.value}.{b0.attr.value}.{attr}"
+            return f"{get_name(b1)}.{b0.attr.value}.{attr}"
+        return f"{get_name(b0)}.{attr}"
+    # if isinstance(node, cst.Subscript):
+    #     return get_name(node.value)
+    # if isinstance(node, cst.Call):
+    #     return get_name(node.func)
+    if isinstance(node, cst.Decorator):
+        return get_name(node.decorator)
+    if isinstance(node, cst.TypeParam):
+        return node.param.name.value
+    if isinstance(node, cst.TypeVar | cst.TypeVarTuple | cst.ParamSpec):
+        return node.name.value
+    if isinstance(node, cst.Ellipsis):
+        return "Ellipsis"
+
+    return None
+
+
+def get_name_strict(node: str | cst.CSTNode, /) -> str:
+    if name := get_name(node):
+        return name
+
+    from libcst.display import dump  # noqa: PLC0415
+
+    assert not isinstance(node, str)
+    raise NotImplementedError(f"not able to parse full name for: {dump(node)}")
 
 
 def as_dict(
@@ -206,3 +257,10 @@ def parse_assign(
     else:
         targets = [_name_or_expr(t) for t in target]
     return cst.Assign(list(map(cst.AssignTarget, targets)), value)
+
+
+def parse_name(value: str, /) -> cst.Name | cst.Attribute:
+    if "." in value:
+        base, attr = value.rsplit(".", 1)
+        return cst.Attribute(parse_name(base), cst.Name(attr))
+    return cst.Name(value)

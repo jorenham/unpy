@@ -168,6 +168,8 @@ potential goals of `unpy`:
     - [ ] [PEP 655][PEP655]: `typing.[Not]Required` => `typing_extensions.[Not]Required`
     - [ ] [PEP 646][PEP646]: `*Ts` => `typing_extensions.Unpack[Ts]`
     - [ ] Remove `typing.Any` when used as base class
+    - [ ] Backport new `enum` members: `StrEnum`, `EnumCheck`, `ReprEnum`,
+    `FlagBoundary`, `property`, `member`, `nonmember`, `global_enum`, `show_flag_values`
 - Generated `TypeVar`s
     - [ ] Prefix extracted `TypeVar`s names with `_`
     - [x] De-duplicate extracted typevar-likes with same name if equivalent
