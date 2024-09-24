@@ -29,7 +29,7 @@ PythonVersionTuple: TypeAlias = tuple[
 
 class PythonVersion(tuple[int, ...], enum.ReprEnum):  # noqa: SLOT001
     # PY39 = (3, 9)
-    # PY310 = (3, 10)
+    PY310 = (3, 10)
     PY311 = (3, 11)
     PY312 = (3, 12)
     # PY313 = (3, 13)

@@ -482,9 +482,6 @@ class StubVisitor(cst.CSTVisitor):
             )
 
         if tpars := node.type_parameters:
-            if self.imported_from_typing_as("Protocol") not in base_set:
-                self.desire_import("typing", "Generic", has_backport=True)
-
             self._register_type_params(stack[0], tpars, variant=True)
 
     @override

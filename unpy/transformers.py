@@ -136,6 +136,15 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         visitor = self.visitor
         target = self.target
 
+        if target >= (3, 12):
+            # PEP 695 makes these redundant
+            for tvar_name in ["TypeVar", "TypeVarTuple", "ParamSpec"]:
+                visitor.imports_add.discard(f"typing.{tvar_name}")
+        if target >= (3, 13):
+            # PEP 695 & PEP 696 make these redundant
+            visitor.imports_add.clear()
+            visitor.imports_del.clear()
+
         for fqn in visitor.imports:
             if "." not in fqn or fqn.startswith(".") or fqn.endswith("*"):
                 continue
@@ -256,6 +265,11 @@ class StubTransformer(m.MatcherDecoratableTransformer):
     ) -> cst.FunctionDef | cst.FlattenSentinel[cst.BaseStatement]:
         self._stack.pop()
 
+        if not (tpars := updated_node.type_parameters):
+            return updated_node
+        if self.target >= (3, 12) and not any(tpar.default for tpar in tpars.params):
+            return updated_node
+
         updated_node = _remove_tpars(updated_node)
         return updated_node if self._stack else self._prepend_tvars(updated_node)
 
@@ -273,6 +287,8 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         stack = self._stack
 
         if not (tpars := original_node.type_parameters):
+            return updated_node
+        if self.target >= (3, 12) and not any(tpar.default for tpar in tpars.params):
             return updated_node
 
         base_args = updated_node.bases
@@ -303,6 +319,8 @@ class StubTransformer(m.MatcherDecoratableTransformer):
             i = len(base_list)
             expr_generic = parse_name(name_generic or "Generic")
             new_bases.insert(i, cst.Arg(parse_subscript(expr_generic, *tpar_names)))
+
+            visitor.desire_import("typing", "Generic", has_backport=True)
 
         updated_node = updated_node.with_changes(type_parameters=None, bases=new_bases)
 
@@ -374,6 +392,4 @@ def transform_source(
     *,
     target: PythonVersion = PythonVersion.PY311,
 ) -> str:
-    if target != PythonVersion.PY311:
-        raise NotImplementedError(f"Python {target}")
     return transform_module(cst.parse_module(source), target=target).code
