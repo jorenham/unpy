@@ -105,9 +105,9 @@ def _new_typing_import_index(module_node: cst.Module) -> int:
 
             i_insert = i + 1
 
-        # if i - i_insert >= 5:
-        #     # stop after encountering 5 non-import statements after the last import
-        #     break
+        if i - i_insert >= 5:
+            # stop after encountering 5 non-import statements after the last import
+            break
     return i_insert
 
 
@@ -246,25 +246,25 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         tpar_names = (tpar.param.name for tpar in tpars.params)
 
         qualname = ".".join(stack)
+        assert qualname == updated_node.name.value or len(stack) > 1
 
         visitor = self.visitor
         base_list = visitor.baseclasses[qualname]
         base_set = set(base_list)
 
+        name_protocol = visitor.imported_from_typing_as("Protocol")
         name_generic = visitor.imported_from_typing_as("Generic")
         assert name_generic not in base_set
 
         new_bases = list(base_args)
-        if base_set and (
-            (fqn_protocol := "typing.Protocol") in base_set
-            or (fqn_protocol := "typing_extensions.Protocol") in base_set
-        ):
-            name_protocol = visitor.imported_from_typing_as("Protocol")
+        if base_set and name_protocol and name_protocol in base_set:
             assert name_protocol
             expr_protocol = parse_name(name_protocol)
 
-            i = base_list.index(fqn_protocol)
-            new_bases[i] = cst.Arg(parse_subscript(expr_protocol, *tpar_names))
+            i = base_list.index(name_protocol)
+            new_bases[i] = new_bases[i].with_changes(
+                value=parse_subscript(expr_protocol, *tpar_names),
+            )
         else:
             # insert `Generic` after all other positional class args
             i = len(base_list)

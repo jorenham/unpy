@@ -1,4 +1,5 @@
 # ruff: noqa: FLY002
+
 import libcst as cst
 from unpy.visitors import StubVisitor
 
@@ -137,3 +138,21 @@ def test_importfrom_deep_star() -> None:
     assert visitor.imported_as("a.b", "c") is None
     assert visitor.imported_as("a", "x") is None
     assert visitor.imported_as("a", "b") is None
+
+
+# TODO: test baseclasses
+
+
+def test_baseclasses_single() -> None:
+    visitor = _visit(
+        "\n".join([
+            "from typing import Protocol as Interface",
+            "class C[T](Interface): ...",
+        ]),
+    )
+    assert visitor.global_names == {"Interface", "C"}
+    assert visitor.imports == {"typing.Protocol": "Interface"}
+    assert visitor.baseclasses == {"C": ["typing.Protocol"]}
+
+
+# TODO: test typevar stuff

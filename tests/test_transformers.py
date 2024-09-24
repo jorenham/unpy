@@ -276,6 +276,7 @@ def test_generic_protocol():
 
     class C[T_contra, T, T_co](Protocol): ...
     """)
+
     pyi_expect = _src("""
     from typing import Protocol
     from typing_extensions import TypeVar
