@@ -1,6 +1,6 @@
 import collections
 import functools
-from typing import Final, LiteralString, assert_never, override
+from typing import Final, assert_never, override
 
 import libcst as cst
 from libcst.metadata import Scope, ScopeProvider
@@ -280,7 +280,7 @@ class StubVisitor(cst.CSTVisitor):
             get_name_strict(as_.name) if (as_ := node.asname) else None,
         )
 
-    def prevent_import(self, module: LiteralString, name: str, /) -> None:
+    def prevent_import(self, module: str, name: str, /) -> None:
         """
         Add the import to `imports_del` if needed, or remove from `imports_add` if
         previously desired.
@@ -297,7 +297,7 @@ class StubVisitor(cst.CSTVisitor):
 
     def desire_import(
         self,
-        module: LiteralString,
+        module: str,
         name: str,
         /,
         *,
@@ -324,13 +324,6 @@ class StubVisitor(cst.CSTVisitor):
             if alias_tpx := self.imported_as("typing_extensions", name):
                 assert fqn_tpx not in self.imports_add
                 return alias_tpx
-
-        if name in self.global_names:
-            # panic if the import will be shadowed
-            # TODO: use an import alias in this case
-            raise NotImplementedError(
-                f"cannot import {name!r} from {module!r}: {name!r} is already defined",
-            )
 
         self.imports_add.add(fqn)
         return name

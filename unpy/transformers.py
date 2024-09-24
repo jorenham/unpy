@@ -13,6 +13,7 @@ from ._cst import (
     parse_subscript,
     parse_tuple,
 )
+from ._stdlib import NAMES_BACKPORT_TPX, NAMES_DEPRECATED_ALIASES
 from ._types import AnyFunction, PythonVersion
 from .visitors import StubVisitor
 
@@ -113,13 +114,15 @@ def _new_typing_import_index(module_node: cst.Module) -> int:
 
 class StubTransformer(m.MatcherDecoratableTransformer):
     visitor: Final[StubVisitor]
+    target: Final[PythonVersion]
     _stack: Final[collections.deque[str]]
 
-    def __init__(self, /, visitor: StubVisitor) -> None:
+    def __init__(self, visitor: StubVisitor, /, target: PythonVersion) -> None:
         assert visitor.imports_del <= set(visitor.imports), visitor.imports_del
         assert not visitor.imports_add & set(visitor.imports), visitor.imports_add
 
         self.visitor = visitor
+        self.target = target
         self._stack = collections.deque()
 
         super().__init__()
@@ -127,6 +130,36 @@ class StubTransformer(m.MatcherDecoratableTransformer):
     @property
     def missing_tvars(self, /) -> dict[str, list[cst.Assign]]:
         return self.visitor.missing_tvars
+
+    @override
+    def visit_Module(self, /, node: cst.Module) -> None:
+        visitor = self.visitor
+        target = self.target
+
+        for fqn in visitor.imports:
+            if "." not in fqn or fqn.startswith(".") or fqn.endswith("*"):
+                continue
+
+            module, name = fqn.rsplit(".", 1)
+
+            if (
+                (reqs := NAMES_BACKPORT_TPX.get(module))
+                and (req := reqs.get(name))
+                and target < req
+            ):
+                visitor.prevent_import(module, name)
+                visitor.desire_import("typing_extensions", name)
+            elif (orig_fqns := NAMES_DEPRECATED_ALIASES.get(module)) and (
+                orig_fqn := orig_fqns.get(name)
+            ):
+                visitor.prevent_import(module, name)
+                module_new, name_new = orig_fqn.rsplit(".", 1)
+
+                if name_new != name:
+                    # TODO: rename the references
+                    continue
+
+                visitor.desire_import(module_new, name_new)
 
     @override
     def leave_ImportFrom(
@@ -325,13 +358,13 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         return updated_node.with_changes(body=updated_body)
 
 
-def transform_module(original: cst.Module, /) -> cst.Module:
+def transform_module(original: cst.Module, /, target: PythonVersion) -> cst.Module:
     wrapper = cst.MetadataWrapper(original)
 
     visitor = StubVisitor()
     _ = wrapper.visit(visitor)
 
-    transformer = StubTransformer(visitor)
+    transformer = StubTransformer(visitor, target=target)
     return wrapper.visit(transformer)
 
 
@@ -342,5 +375,5 @@ def transform_source(
     target: PythonVersion = PythonVersion.PY311,
 ) -> str:
     if target != PythonVersion.PY311:
-        raise NotADirectoryError(f"Python {target}")
-    return transform_module(cst.parse_module(source)).code
+        raise NotImplementedError(f"Python {target}")
+    return transform_module(cst.parse_module(source), target=target).code

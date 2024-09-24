@@ -140,9 +140,6 @@ def test_importfrom_deep_star() -> None:
     assert visitor.imported_as("a", "b") is None
 
 
-# TODO: test baseclasses
-
-
 def test_baseclasses_single() -> None:
     visitor = _visit(
         "\n".join([
@@ -154,5 +151,6 @@ def test_baseclasses_single() -> None:
     assert visitor.imports == {"typing.Protocol": "Interface"}
     assert visitor.baseclasses == {"C": ["typing.Protocol"]}
 
+# TODO: more baseclass tests
 
 # TODO: test typevar stuff
