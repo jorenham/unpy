@@ -189,6 +189,7 @@ class StubVisitor(cst.CSTVisitor):
         'NoneType'
         >>> visitor.imported_as("typing", "Protocol")
         'Protocol'
+
         ```
 
         Note that in the case of `collections.abc`, it assumed that `abc` is explicitly
