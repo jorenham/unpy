@@ -149,7 +149,7 @@ def test_baseclasses_single() -> None:
     )
     assert visitor.global_names == {"Interface", "C"}
     assert visitor.imports == {"typing.Protocol": "Interface"}
-    assert visitor.baseclasses == {"C": ["typing.Protocol"]}
+    assert visitor.baseclasses == {"C": ["Interface"]}
 
 # TODO: more baseclass tests
 
