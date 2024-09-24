@@ -9,8 +9,8 @@ from typing import Annotated, Final, TypeAlias
 
 import typer
 
-from ._transform import transform_source
-from ._types import Target
+from ._types import PythonVersion
+from .transformers import transform_source
 
 __all__ = ("app",)
 
@@ -56,7 +56,7 @@ _OptionVersion: TypeAlias = Annotated[
 ]
 
 _OptionTarget: TypeAlias = Annotated[
-    Target,
+    PythonVersion,
     typer.Option(
         "--target",
         help="The minimum Python version that should be supported.",
@@ -71,7 +71,7 @@ _OptionDiff: TypeAlias = Annotated[
 ]
 
 _DEFAULT_OUTPUT: Final = Path("-")
-_DEFAULT_TARGET: Final = Target.PY311
+_DEFAULT_TARGET: Final = PythonVersion.PY311
 
 
 def _read_source(source: Path, /) -> str:
