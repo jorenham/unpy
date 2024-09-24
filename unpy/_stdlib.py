@@ -1,7 +1,22 @@
+import builtins
+from importlib.abc import Loader
+from importlib.machinery import ModuleSpec
 from typing import Final
 
-__all__ = ("NAMES_BACKPORT_TPX", "NAMES_DEPRECATED_ALIASES")
+__all__ = ("GLOBALS_DEFAULT", "NAMES_BACKPORT_TPX", "NAMES_DEPRECATED_ALIASES")
 
+
+GLOBALS_DEFAULT: Final[dict[str, type | object]] = {
+    "__name__": str,
+    "__doc__": str | None,
+    "__package__": str | None,
+    "__loader__": type[Loader],
+    "__spec__": ModuleSpec | None,
+    "__annotations__": dict[str, type | object],
+    "__builtins__": type(builtins),
+    "__file__": str | None,
+    "__cached__": str | None,
+}
 
 NAMES_DEPRECATED_ALIASES: Final = {
     typing_module: {

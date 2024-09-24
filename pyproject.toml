@@ -112,11 +112,12 @@ executionEnvironments = [
 ]
 
 [tool.pytest.ini_options]
-addopts = ["-ra", "--strict-config", "--strict-markers"]
+testpaths = ["unpy", "tests"]
+addopts = ["-rav", "--strict-config", "--strict-markers", "--doctest-modules"]
+doctest_optionflags = ["NORMALIZE_WHITESPACE", "ELLIPSIS"]
 filterwarnings = ["error"]
 log_cli_level = "INFO"
 minversion = "8.3"
-testpaths = ["tests"]
 xfail_strict = true
 
 [tool.ruff]
