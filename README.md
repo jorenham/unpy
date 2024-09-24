@@ -160,14 +160,15 @@ potential goals of `unpy`:
     - [ ] [PEP 688][PEP688]: `inspect.BufferFlags` => `int`
     - [ ] Backport subclasses of `path.Path`
 - Python 3.11 => 3.10
-    - [ ] [PEP 681][PEP681]: `typing.dataclass_transform` =>
+    - [x] [PEP 681][PEP681]: `typing.dataclass_transform` =>
     `typing_extensions.dataclass_transform`
     - [ ] [PEP 680][PEP680]: `tomllib` => `tomli`
-    - [ ] [PEP 675][PEP675]: `typing.LiteralString` => `typing_extensions.LiteralString`
-    - [ ] [PEP 673][PEP673]: `typing.Self` => `typing_extensions.Self`
-    - [ ] [PEP 655][PEP655]: `typing.[Not]Required` => `typing_extensions.[Not]Required`
+    - [x] [PEP 675][PEP675]: `typing.LiteralString` => `typing_extensions.LiteralString`
+    - [x] [PEP 673][PEP673]: `typing.Self` => `typing_extensions.Self`
+    - [x] [PEP 655][PEP655]: `typing.[Not]Required` => `typing_extensions.[Not]Required`
     - [ ] [PEP 646][PEP646]: `*Ts` => `typing_extensions.Unpack[Ts]`
     - [ ] Remove `typing.Any` when used as base class
+    - [ ] Backport `ExceptionGroup` and `BaseExceptionGroup` when used as base class
     - [ ] Backport new `enum` members: `StrEnum`, `EnumCheck`, `ReprEnum`,
     `FlagBoundary`, `property`, `member`, `nonmember`, `global_enum`, `show_flag_values`
 - Generated `TypeVar`s
@@ -182,11 +183,11 @@ potential goals of `unpy`:
 - Imports
     - [x] Reuse existing `from typing[_extensions] import {name}` imports instead of
     adding new ones
-    - [ ] Reuse `from {module} import {name} as {alias}` import aliases if present, e.g.
+    - [x] Reuse `from {module} import {name} as {alias}` import aliases if present, e.g.
     `from typing import TypeVar as TypeParam`
-    - [ ] Reuse `import {module} as {alias}` if present, e.g. `import typing as tp`
+    - [x] Reuse `import {module} as {alias}` if present, e.g. `import typing as tp`
+    - [x] Support for `from typing[_extensions] import *` (not recommended)
     - [ ] Support for custom `typing` modules (like `[tool.ruff.lint.typing-modules]`)
-    - [ ] Support for `from typing[_extensions] import *` (not recommended)
 - Simplification and refactoring
     - [ ] Transform `self` parameters to be positional-only
     - [ ] Use `None` as the default return type
