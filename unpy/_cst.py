@@ -1,12 +1,30 @@
 import functools
 from collections.abc import Iterable
+from dataclasses import dataclass
 from itertools import starmap
-from typing import Literal, TypeAlias, TypedDict, Unpack, cast, overload
+from typing import (
+    Literal,
+    Self,
+    TypeAlias,
+    TypedDict,
+    Unpack,
+    cast,
+    final,
+    overload,
+    override,
+)
 
 import libcst as cst
 from libcst.helpers import filter_node_fields
 
-from ._types import Encoding, Indent, LineEnding, StringPrefix, StringQuote
+from ._types import (
+    Encoding,
+    Indent,
+    LineEnding,
+    PythonVersion,
+    StringPrefix,
+    StringQuote,
+)
 
 __all__ = [
     "as_dict",
@@ -25,6 +43,7 @@ __all__ = [
 
 
 # PEP 695 "syntax" breaks `isinstance`
+_FullName: TypeAlias = cst.Name | cst.Attribute
 _AssignTarget: TypeAlias = cst.BaseAssignTargetExpression | str
 
 
@@ -219,8 +238,22 @@ def parse_tuple(
     return cst.Tuple(elems) if parens else cst.Tuple(elems, [], [])
 
 
-def _name_or_expr[T: cst.BaseExpression](value: T | str, /) -> T | cst.Name:
-    return cst.Name(value) if isinstance(value, str) else value
+def parse_name(value: str, /) -> _FullName:
+    if "." in value:
+        base, attr = value.rsplit(".", 1)
+        return cst.Attribute(parse_name(base), cst.Name(attr))
+    return cst.Name(value)
+
+
+@overload
+def _name_or_expr[T: cst.BaseExpression](value: T, /) -> T: ...
+@overload
+def _name_or_expr[T: cst.BaseExpression](value: str, /) -> cst.Name | cst.Attribute: ...
+def _name_or_expr[T: cst.BaseExpression](
+    value: T | str,
+    /,
+) -> T | cst.Name | cst.Attribute:
+    return parse_name(value) if isinstance(value, str) else value
 
 
 def parse_call(
@@ -259,8 +292,150 @@ def parse_assign(
     return cst.Assign(list(map(cst.AssignTarget, targets)), value)
 
 
-def parse_name(value: str, /) -> cst.Name | cst.Attribute:
-    if "." in value:
-        base, attr = value.rsplit(".", 1)
-        return cst.Attribute(parse_name(base), cst.Name(attr))
-    return cst.Name(value)
+# TODO: `@sealed`
+@dataclass(frozen=True, slots=True)
+class TypeParameter:
+    type: Literal["TypeVar", "TypeVarTuple", "ParamSpec"]
+
+    name: str
+    default: cst.BaseExpression | None = None
+
+    @property
+    def invariant(self, /) -> bool:
+        return True
+
+    def required_imports(self, /, target: PythonVersion) -> frozenset[str]:
+        """The imports it would require to use this as typevar-like (no PEP 695)."""
+        raise NotImplementedError
+
+    def as_assign(self, /, target: PythonVersion) -> cst.Assign:
+        raise NotImplementedError
+
+    def as_subscript_element(self, /, target: PythonVersion) -> cst.SubscriptElement:  # noqa: ARG002
+        return cst.SubscriptElement(cst.Index(cst.Name(self.name)))
+
+    @classmethod
+    def from_cst(cls, node: cst.TypeParam, /) -> Self:
+        # TODO
+        raise NotImplementedError
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class TypeVar(TypeParameter):
+    covariant: bool = False
+    contravariant: bool = False
+    infer_variance: bool = False
+
+    bound: cst.BaseExpression | None = None
+    constraints: tuple[cst.BaseExpression, ...] = ()
+
+    alias_type: str = "TypeVar"
+
+    @property
+    @override
+    def invariant(self, /) -> bool:
+        return not (self.covariant or self.contravariant or self.infer_variance)
+
+    @override
+    def required_imports(self, /, target: PythonVersion) -> frozenset[str]:
+        module = (
+            "typing_extensions"
+            if (target < (3, 13) and self.default)
+            or (target < (3, 12) and self.infer_variance)
+            else "typing"
+        )
+        return frozenset({f"{module}.TypeVar"})
+
+    @override
+    def as_assign(self, /, target: PythonVersion) -> cst.Assign:
+        kwargs: dict[str, cst.BaseExpression] = {}
+
+        for key in ("covariant", "contravariant", "infer_variance"):
+            if value := cast(bool, getattr(self, key)):
+                kwargs[key] = parse_bool(value)
+
+        if bound := self.bound:
+            kwargs["bound"] = bound
+        if default := self.default:
+            kwargs["default"] = default
+
+        return parse_assign(
+            cst.Name(self.name),
+            parse_call(
+                parse_name(self.alias_type),
+                parse_str(self.name),
+                *self.constraints,
+                **kwargs,
+            ),
+        )
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class TypeVarTuple(TypeParameter):
+    default_star: bool = False
+
+    alias_type: str = "TypeVarTuple"
+    alias_unpack: str = "Unpack"
+
+    @override
+    def required_imports(self, /, target: PythonVersion) -> frozenset[str]:
+        # `typing.TypeVarTuple` exists since 3.11, and supports `default=` since 3.13
+
+        if target < (3, 11) or self.default_star:
+            # unpacking a `default=` always requires `Unpack`
+            module = "typing_extensions" if target < (3, 13) else "typing"
+            return frozenset({f"{module}.TypeVarTuple", f"{module}.Unpack"})
+
+        module = "typing_extensions" if target < (3, 13) and self.default else "typing"
+        return frozenset({f"{module}.TypeVarTuple"})
+
+    @override
+    def as_assign(self, /, target: PythonVersion) -> cst.Assign:
+        kwargs: dict[str, cst.BaseExpression] = {}
+        if self.default_star:
+            kwargs["default"] = self.as_unpack(target)
+        elif default := self.default:
+            kwargs["default"] = default
+
+        return parse_assign(
+            cst.Name(self.name),
+            parse_call(parse_name(self.alias_type), parse_str(self.name), **kwargs),
+        )
+
+    @override
+    def as_subscript_element(self, /, target: PythonVersion) -> cst.SubscriptElement:
+        if target < (3, 11):
+            index = cst.Index(self.as_unpack(target))
+        else:
+            index = cst.Index(cst.Name(self.name), star="*")
+        return cst.SubscriptElement(index)
+
+    def as_unpack(self, /, target: PythonVersion) -> cst.BaseExpression:
+        return cst.Subscript(
+            parse_name(self.alias_unpack),
+            [super().as_subscript_element(target)],
+        )
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class ParamSpec(TypeParameter):
+    alias_type: str = "ParamSpec"
+
+    @override
+    def required_imports(self, /, target: PythonVersion) -> frozenset[str]:
+        module = "typing_extensions" if target < (3, 13) and self.default else "typing"
+        return frozenset({f"{module}.{self.type}"})
+
+    @override
+    def as_assign(self, /, target: PythonVersion) -> cst.Assign:
+        return parse_assign(
+            cst.Name(self.name),
+            parse_call(
+                parse_name(self.alias_type),
+                parse_str(self.name),
+                **({"default": default} if (default := self.default) else {}),
+            ),
+        )

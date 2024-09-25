@@ -3,7 +3,13 @@ from importlib.abc import Loader
 from importlib.machinery import ModuleSpec
 from typing import Final
 
-__all__ = ("GLOBALS_DEFAULT", "NAMES_BACKPORT_TPX", "NAMES_DEPRECATED_ALIASES")
+__all__ = (
+    "BASES_WITHOUT_BACKPORT",
+    "GLOBALS_DEFAULT",
+    "NAMES_BACKPORT_TPX",
+    "NAMES_DEPRECATED_ALIASES",
+    "NAMES_WITHOUT_BACKPORT",
+)
 
 
 GLOBALS_DEFAULT: Final[dict[str, type | object]] = {
@@ -123,5 +129,26 @@ NAMES_BACKPORT_TPX: Final = {
     },
     "warnings": {
         "deprecated": (3, 13),
+    },
+}
+
+NAMES_WITHOUT_BACKPORT: Final = {
+    "builtins": {
+        "_IncompleteInputError": (3, 13),
+        "PythonFinalizationError": (3, 13),
+        "BaseExceptionGroup": (3, 11),
+        "ExceptionGroup": (3, 11),
+        "EncodingWarning": (3, 10),
+    },
+}
+BASES_WITHOUT_BACKPORT: Final = {
+    "pathlib": {
+        "Path": (3, 12),
+    },
+    "typing": {
+        "Any": (3, 11),
+    },
+    "typing_extensions": {
+        "Any": (3, 11),
     },
 }
