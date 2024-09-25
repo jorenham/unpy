@@ -9,6 +9,7 @@ dist/
 site/
 
 # Cache
+.basedpyright/
 .cache/
 .mypy_cache/
 .pytest_cache/
