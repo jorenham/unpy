@@ -1,103 +1,29 @@
 import collections
 import functools
-from typing import Final, assert_never, override
+from typing import Final, override
 
 import libcst as cst
 from libcst.metadata import Scope, ScopeProvider
 
-from ._cst import (
-    get_name,
-    get_name_strict,
-    node_hash,
-    parse_assign,
-    parse_bool,
-    parse_call,
-    parse_str,
-)
+import unpy._cst as uncst
 
 __all__ = ("StubVisitor",)
 
+_MODULE_BUILTINS: Final = "builtins"
+_MODULE_PATHLIB: Final = "pathlib"
+_MODULE_TP: Final = "typing"
+_MODULE_TPX: Final = "typing_extensions"
+
 _ILLEGAL_BASES: Final = (
-    ("builtins", "BaseExceptionGroup"),
-    ("builtins", "ExceptionGroup"),
-    ("builtins", "_IncompleteInputError"),
-    ("builtins", "PythonFinalizationError"),
-    ("builtins", "EncodingWarning"),
-    ("pathlib", "Path"),
-    ("typing", "Any"),
-    ("typing_extensions", "Any"),
+    (_MODULE_BUILTINS, "BaseExceptionGroup"),
+    (_MODULE_BUILTINS, "ExceptionGroup"),
+    (_MODULE_BUILTINS, "_IncompleteInputError"),
+    (_MODULE_BUILTINS, "PythonFinalizationError"),
+    (_MODULE_BUILTINS, "EncodingWarning"),
+    (_MODULE_PATHLIB, "Path"),
+    (_MODULE_TP, "Any"),
+    (_MODULE_TPX, "Any"),
 )
-
-_TYPEVAR_SUFFIXES_CONTRAVARIANT: Final = "_contra", "_in"
-_TYPEVAR_SUFFIXES_COVARIANT: Final = "_co", "_out"
-_TYPEVAR_SUFFIXES: Final = _TYPEVAR_SUFFIXES_CONTRAVARIANT + _TYPEVAR_SUFFIXES_COVARIANT
-
-
-def _backport_tpar(tpar: cst.TypeParam, /, *, variant: bool = False) -> cst.Assign:  # noqa: C901
-    param = tpar.param
-    name = param.name.value
-
-    args: list[cst.BaseExpression] = [parse_str(name)]
-    kwargs: dict[str, cst.BaseExpression] = {}
-
-    # otherwise mypy thinks it's undefined later on
-    bound: cst.BaseExpression | None = None
-
-    # TODO: replace with `if` statements
-    match param:
-        case cst.TypeVar(_, bound):
-            if variant:
-                variance = "infer_variance"
-                # TODO: use regexes
-                if name.endswith(_TYPEVAR_SUFFIXES_CONTRAVARIANT):
-                    variance = "contravariant"
-                elif name.endswith(_TYPEVAR_SUFFIXES_COVARIANT):
-                    variance = "covariant"
-                kwargs[variance] = parse_bool(True)
-
-            # TODO: replace with `if` statements
-            match bound:
-                # TODO: resolve `builtins.object` and `typing[_extensions].Any`
-                case (
-                    cst.Name("object" | "Any")
-                    | cst.Attribute(cst.Name("typing"), cst.Name("Any"))
-                ):
-                    bound = None
-                case cst.Tuple(elements):
-                    for el in elements:
-                        con = cst.ensure_type(el, cst.Element).value
-                        if isinstance(con, cst.Name) and con.value == "Any":
-                            con = cst.Name("object")
-                        args.append(con)
-                    bound = None
-                case cst.BaseExpression() | None:
-                    pass
-
-            if bound:
-                kwargs["bound"] = bound
-
-        case cst.TypeVarTuple(_) | cst.ParamSpec(_):
-            bound = cst.Name("object")
-
-        case _ as wtf:  # pyright: ignore[reportUnnecessaryComparison]
-            assert_never(wtf)
-
-    # TODO: replace with `if` statements
-    match default := tpar.default:
-        case None:
-            pass
-        # TODO: use the resolved `typing[_extensions].Any` name
-        case cst.Name("Any"):
-            default = bound or cst.Name("object")
-        case cst.BaseExpression():
-            pass
-
-    if default:
-        kwargs["default"] = default
-
-    # TODO: deal with existing `import {tname} as {tname_alias}`
-    tname = type(param).__name__
-    return parse_assign(name, parse_call(tname, *args, **kwargs))
 
 
 class StubVisitor(cst.CSTVisitor):
@@ -111,36 +37,37 @@ class StubVisitor(cst.CSTVisitor):
     _scope: Scope
     _stack: Final[collections.deque[str]]
 
-    # {module.name: alias}
+    # {import_fqn: alias_fqn, ...}
     imports: dict[str, str]
-    imports_del: set[str]
-    imports_add: set[str]
     _import_cache: dict[str, str | None]
 
-    # {typevar_name: typevar_hash}
-    visited_tvars: dict[str, int]
-    # {root_node_name: [cst.Assign]}
-    missing_tvars: dict[str, list[cst.Assign]]
+    # {(generic_name, param_name), param), ...]
+    type_params: dict[tuple[str, str], uncst.TypeParameter]
+    type_params_grouped: dict[str, list[uncst.TypeParameter]]
 
-    # {fqn: [bases]}
-    baseclasses: dict[str, list[str]]
+    # {alias_name: [type_param, ...]}
+    type_aliases: dict[str, list[uncst.TypeParameter]]
+
+    # {class_qualname: [class_qualname, ...]}
+    class_bases: dict[str, list[str]]
 
     def __init__(self, /) -> None:
         self._stack = collections.deque()
 
-        # TODO: refactor import stuff as metadata
-        # TODO: support non-top-level imports with `collections.ChainMap`
+        # TODO(jorenham): refactor this metadata
+        # TODO(jorenham): support non-top-level imports with `collections.ChainMap`
         self.imports = {}
-        self.imports_del = set()
-        self.imports_add = set()
         self._import_cache = {}
 
-        # TODO: refactor typevar stuff as metadata
-        self.visited_tvars = {}
-        self.missing_tvars = collections.defaultdict(list)
+        # TODO(jorenham): refactor type-param stuff as metadata
+        self.type_params = {}
+        self.type_params_grouped = collections.defaultdict(list)
 
-        # TODO: refactor baseclass stuff as metadata
-        self.baseclasses = {}
+        # TODO(jorenham): refactor this as metadata
+        self.type_aliases = {}
+
+        # TODO(jorenham): refactor this as metadata
+        self.class_bases = {}
 
         super().__init__()
 
@@ -183,11 +110,11 @@ class StubVisitor(cst.CSTVisitor):
         >>> _ = wrapper.visit(visitor := StubVisitor())
         >>> visitor.imported_as("collections.abc", "Set")
         'col.abc.Set'
-        >>> visitor.imported_as("typing_extensions", "Never")
+        >>> visitor.imported_as(_MODULE_TPX, "Never")
         'tpx.Never'
         >>> visitor.imported_as("types", "NoneType")
         'NoneType'
-        >>> visitor.imported_as("typing", "Protocol")
+        >>> visitor.imported_as(_MODULE_TP, "Protocol")
         'Protocol'
 
         ```
@@ -221,9 +148,9 @@ class StubVisitor(cst.CSTVisitor):
         assert all(parts), fqn
 
         default: str | None = None
-        if module == "builtins" or (
+        if module == _MODULE_BUILTINS or (
             # type-check only
-            module in {"typing", "typing_extensions"}
+            module in {_MODULE_TP, _MODULE_TPX}
             and name in {"reveal_type", "reveal_locals"}
         ):
             default = name
@@ -232,7 +159,7 @@ class StubVisitor(cst.CSTVisitor):
                 # and prioritize returning an explicit import alias, if any.
                 return name
 
-        _imports = {"builtins": "__builtins__"} | imports
+        _imports = {_MODULE_BUILTINS: "__builtins__"} | imports
 
         # NOTE: This assumes that top-level modules export the submodule, e.g. having a
         # `import collections as cs` will cause `collections.abc.Buffer` to resolve
@@ -250,8 +177,8 @@ class StubVisitor(cst.CSTVisitor):
         assert name.isidentifier(), name
 
         return (
-            self.imported_as("typing", name)
-            or self.imported_as("typing_extensions", name)
+            self.imported_as(_MODULE_TP, name)
+            or self.imported_as(_MODULE_TPX, name)
         )  # fmt: skip
 
     def _register_import(
@@ -276,88 +203,129 @@ class StubVisitor(cst.CSTVisitor):
         module: str | None = None,
     ) -> str:
         return self._register_import(
-            get_name_strict(node.name),
+            uncst.get_name_strict(node.name),
             module,
-            get_name_strict(as_.name) if (as_ := node.asname) else None,
+            uncst.get_name_strict(as_.name) if (as_ := node.asname) else None,
         )
 
-    def prevent_import(self, module: str, name: str, /) -> None:
-        """
-        Add the import to `imports_del` if needed, or remove from `imports_add` if
-        previously desired.
-        """
-        fqn = f"{module}.{name}"
-
-        # only consider "direct" imports, i.e. `from {module} import {name}`,
-        # and ignore `from {module} import *` or `import {module}`
-        if self.imported_as(module, name):
-            self.imports_del.add(fqn)
-            assert fqn not in self.imports_add, fqn
-
-        self.imports_add.discard(fqn)
-
-    def desire_import(
+    def _build_type_param(  # noqa: C901
         self,
-        module: str,
-        name: str,
+        tpar: cst.TypeParam,
         /,
         *,
-        has_backport: bool = False,
-    ) -> str:
-        """Add the import to `imports_add` if needed."""
-        assert name.isidentifier(), name
-        fqn = f"{module}.{name}"
+        infer_variance: bool = False,
+    ) -> uncst.TypeParameter:
+        param = tpar.param
+        name = param.name.value
+        default = tpar.default
 
-        # check if already imported or desired to be imported
-        if alias := self.imported_as(module, name):
-            assert fqn not in self.imports_add
-            return alias
-        if fqn in self.imports_add:
-            return name
+        if isinstance(default, cst.BaseString):
+            raise NotImplementedError("stringified type parameter defaults")
 
-        if has_backport:
-            # check if the typing_extensions backport is already desired or imported
-            fqn_tpx = f"typing_extensions.{name}"
-            assert fqn_tpx != fqn
+        name_any = self.imported_from_typing_as("Any")
+        name_object = self.imported_as(_MODULE_BUILTINS, "object")
+        assert name_object
 
-            if fqn_tpx in self.imports_add:
-                return name
-            if alias_tpx := self.imported_as("typing_extensions", name):
-                assert fqn_tpx not in self.imports_add
-                return alias_tpx
+        if _default_any := (
+            default
+            and isinstance(default, cst.Name | cst.Attribute)
+            and uncst.get_name_strict(default) == name_any
+        ):
+            # use `builtins.object` as the default `default=` default (not a typo)
+            default = uncst.parse_name(name_object)
 
-        self.imports_add.add(fqn)
-        return name
+        if isinstance(param, cst.TypeVarTuple):
+            return uncst.TypeVarTuple(
+                name=name,
+                default=default,
+                default_star=bool(tpar.star),
+            )
+
+        if isinstance(param, cst.ParamSpec):
+            return uncst.ParamSpec(name=name, default=default)
+
+        assert isinstance(param, cst.TypeVar)
+
+        constraints: tuple[cst.BaseExpression, ...] = ()
+        if not (bound := param.bound):
+            pass
+        elif isinstance(bound, cst.BaseString):
+            raise NotImplementedError("stringified type parameter bounds")
+        elif (
+            name_any
+            and isinstance(bound, cst.Name | cst.Attribute)
+            and uncst.get_name_strict(bound) in {name_object, name_any}
+        ):
+            bound = None
+        elif isinstance(bound, cst.Tuple):
+            cons: list[cst.BaseExpression] = []
+            for el in bound.elements:
+                if isinstance(el, cst.StarredElement):
+                    raise NotImplementedError("starred type constraints")
+                assert isinstance(el, cst.Element)
+
+                con = el.value
+                if isinstance(con, cst.BaseString):
+                    raise NotImplementedError("stringified type constraints")
+
+                if (
+                    name_any
+                    and isinstance(con, cst.Name | cst.Attribute)
+                    and uncst.get_name_strict(con) == name_any
+                ):
+                    con = uncst.parse_name(name_object)
+                cons.append(con)
+
+            constraints = tuple(cons)
+            bound = None
+
+        if _default_any and bound is not None:
+            # if `default=Any`, replace it the value of `bound` (`Any` is horrible)
+            default = bound
+
+        covariant = contravariant = False
+        if infer_variance:
+            # TODO(jorenham): actually infer the variance
+            # https://github.com/jorenham/unpy/issues/44
+            if name.endswith("_co"):
+                covariant, infer_variance = True, False
+            elif name.endswith("_contra"):
+                contravariant, infer_variance = True, False
+
+            if constraints:
+                if infer_variance:
+                    infer_variance = False
+                else:
+                    # TODO(jorenham): proper error reporting
+                    # https://github.com/jorenham/unpy/issues/50
+                    raise NotImplementedError("type constraints require invariance")
+
+        return uncst.TypeVar(
+            name=name,
+            covariant=covariant,
+            contravariant=contravariant,
+            infer_variance=infer_variance,
+            constraints=constraints,
+            bound=bound,
+            default=default,
+        )
 
     def _register_type_params(
         self,
-        name: str,
-        tpars: cst.TypeParameters,
+        generic_name: str,
+        params: cst.TypeParameters,
         /,
         *,
-        variant: bool = False,
-    ) -> None:
-        visited_tvars = self.visited_tvars
-        missing_tvars = self.missing_tvars[name]
-        for tpar in tpars.params:
-            tname = tpar.param.name.value
-            thash = node_hash(tpar)
-
-            if tname in visited_tvars:
-                if visited_tvars[tname] != thash:
-                    raise NotImplementedError(f"Duplicate type param {tname!r}")
-                continue
-
-            visited_tvars[tname] = thash
-
-            missing_tvars.append(_backport_tpar(tpar, variant=variant))
-
-            import_name = type(tpar.param).__name__
-            if tpar.default or (variant and tname.endswith(_TYPEVAR_SUFFIXES)):
-                self.desire_import("typing_extensions", import_name)
-                self.prevent_import("typing", import_name)
-            else:
-                self.desire_import("typing", import_name, has_backport=True)
+        infer_variance: bool = False,
+    ) -> list[uncst.TypeParameter]:
+        type_params, type_params_grouped = self.type_params, self.type_params_grouped
+        registered: list[uncst.TypeParameter] = []
+        for p in params.params:
+            type_param = self._build_type_param(p, infer_variance=infer_variance)
+            type_params[generic_name, type_param.name] = type_param
+            type_params_grouped[generic_name].append(type_param)
+            registered.append(type_param)
+        return registered
 
     def __check_import_scope(self, /) -> None:
         if self._stack:
@@ -387,7 +355,7 @@ class StubVisitor(cst.CSTVisitor):
 
         module = "." * len(node.relative)
         if node.module:
-            name = get_name(node.module)
+            name = uncst.get_name(node.module)
             assert name, node.module
             module += name
 
@@ -399,20 +367,19 @@ class StubVisitor(cst.CSTVisitor):
 
     @override
     def visit_TypeAlias(self, /, node: cst.TypeAlias) -> None:
+        if self._stack:
+            raise NotImplementedError("only top-level type aliases are supported")
+
+        name = node.name.value
+        assert name not in self.type_aliases
+
         if tpars := node.type_parameters:
-            assert not self._stack
+            self.type_aliases[name] = self._register_type_params(name, tpars)
+        else:
+            self.type_aliases[name] = []
 
-            name = node.name.value
-            assert name not in self.missing_tvars
-
-            self._register_type_params(name, tpars)
-
-            # TODO: additionally require the LHS/RHS order to mismatch here
-            if len(tpars.params) > 1:
-                self.desire_import("typing_extensions", "TypeAliasType")
-                return
-
-        self.desire_import("typing", "TypeAlias")
+        # TODO(jorenham): report redundant type params
+        # https://github.com/jorenham/unpy/issues/46
 
     @override
     def visit_FunctionDef(self, /, node: cst.FunctionDef) -> None:
@@ -423,6 +390,9 @@ class StubVisitor(cst.CSTVisitor):
 
     @override
     def leave_FunctionDef(self, /, original_node: cst.FunctionDef) -> None:
+        # TODO(jorenham): detect redundant type params
+        # https://github.com/jorenham/unpy/issues/46
+
         _ = self._stack.pop()
 
     @functools.cached_property
@@ -440,14 +410,11 @@ class StubVisitor(cst.CSTVisitor):
         stack = self._stack
         stack.append(name)
 
-        is_global = len(stack) == 1
-        assert not (is_global and name in self.missing_tvars)
-
-        qualname = name if is_global else ".".join(stack)
-        assert qualname not in self.baseclasses
+        qualname = name if len(stack) == 1 else ".".join(stack)
+        assert qualname not in self.class_bases
 
         bases: list[str]
-        self.baseclasses[qualname] = bases = []
+        self.class_bases[qualname] = bases = []
 
         for arg in node.bases:
             # class kwargs aren't relevant (for now)
@@ -459,11 +426,12 @@ class StubVisitor(cst.CSTVisitor):
             base = arg.value
 
             # unwrap `typing.cast` calls
-            while isinstance(base, cst.Call) and get_name(base.func) == "typing.cast":
+            cast_name = self.imported_as(_MODULE_TP, "cast")
+            while isinstance(base, cst.Call) and uncst.get_name(base.func) == cast_name:
                 assert len(base.args) == 2
                 base = base.args[1].value
 
-            if not (basename := get_name(base)):
+            if not (basename := uncst.get_name(base)):
                 _expr = type(base).__qualname__
                 raise NotImplementedError(
                     f"{qualname!r}: unsupported class argument expression ({_expr})",
@@ -482,8 +450,11 @@ class StubVisitor(cst.CSTVisitor):
             )
 
         if tpars := node.type_parameters:
-            self._register_type_params(stack[0], tpars, variant=True)
+            self._register_type_params(stack[0], tpars, infer_variance=True)
 
     @override
     def leave_ClassDef(self, /, original_node: cst.ClassDef) -> None:
+        # TODO(jorenham): detect redundant type params
+        # https://github.com/jorenham/unpy/issues/46
+
         _ = self._stack.pop()

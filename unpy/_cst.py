@@ -1,15 +1,35 @@
+import dataclasses
 import functools
+from collections import deque
 from collections.abc import Iterable
 from itertools import starmap
-from typing import Literal, TypeAlias, TypedDict, Unpack, cast, overload
+from typing import (
+    Final,
+    Literal,
+    TypeAlias,
+    TypedDict,
+    Unpack,
+    cast,
+    final,
+    overload,
+    override,
+)
 
 import libcst as cst
 from libcst.helpers import filter_node_fields
 
-from ._types import Encoding, Indent, LineEnding, StringPrefix, StringQuote
+from ._types import (
+    Encoding,
+    Indent,
+    LineEnding,
+    PythonVersion,
+    StringPrefix,
+    StringQuote,
+)
 
 __all__ = [
     "as_dict",
+    "get_access_order",
     "get_code",
     "get_name",
     "get_name_strict",
@@ -23,9 +43,17 @@ __all__ = [
     "parse_tuple",
 ]
 
-
 # PEP 695 "syntax" breaks `isinstance`
+_FullName: TypeAlias = cst.Name | cst.Attribute
 _AssignTarget: TypeAlias = cst.BaseAssignTargetExpression | str
+
+_MODULE_TP: Final = "typing"
+_MODULE_TPX: Final = "typing_extensions"
+
+_NAME_TVAR: Final = "TypeVar"
+_NAME_TVAR_TUPLE: Final = "TypeVarTuple"
+_NAME_PARAMSPEC: Final = "ParamSpec"
+_NAME_UNPACK: Final = "Unpack"
 
 
 class _ModuleKwargs(TypedDict):
@@ -35,11 +63,7 @@ class _ModuleKwargs(TypedDict):
     has_trailing_newline: bool
 
 
-def get_code(
-    node: cst.CSTNode,
-    /,
-    **kwargs: Unpack[_ModuleKwargs],
-) -> str:
+def get_code(node: cst.CSTNode, /, **kwargs: Unpack[_ModuleKwargs]) -> str:
     """
     Generate the code of the given node.
 
@@ -66,7 +90,7 @@ def get_name(
 ) -> str: ...
 @overload
 def get_name(node: cst.CSTNode, /) -> str | None: ...
-def get_name(node: str | cst.CSTNode, /) -> str | None:  # noqa: C901, PLR0911
+def get_name(node: str | cst.CSTNode, /) -> str | None:  # noqa: PLR0911
     if isinstance(node, str):
         return node
     if isinstance(node, cst.Name):
@@ -107,6 +131,45 @@ def get_name_strict(node: str | cst.CSTNode, /) -> str:
     raise NotImplementedError(f"not able to parse full name for: {dump(node)}")
 
 
+def get_access_order(
+    node: cst.CSTNode,
+    names: Iterable[str],
+    /,
+) -> dict[str, int | None]:
+    """
+    Recurses all names and returns a mapping of the names to the access order index,
+    or `None` if not accessed.
+
+    This is primarily used to determining whether the parameters of a type alias
+    are referenced in the order they are defined.
+
+    The returned dict keys are ordered according to the `names` argument.
+    """
+    if isinstance(names, str):
+        raise TypeError("names must be an iterable of strings, but not a string")
+
+    remaining = set(names)
+    access_order: dict[str, int | None] = dict.fromkeys(names, None)
+    index = 0
+
+    visited: set[cst.CSTNode] = set()
+    stack = deque([node])
+    while remaining and stack:
+        if (current := stack.pop()) in visited:
+            continue
+        visited.add(current)
+
+        if isinstance(current, cst.Name):
+            if (name := current.value) in remaining:
+                access_order[name] = index
+                remaining.remove(name)
+                index += 1
+        else:
+            stack.extend(reversed(current.children))
+
+    return access_order
+
+
 def as_dict(
     node: cst.CSTNode,
     /,
@@ -115,11 +178,7 @@ def as_dict(
     syntax: bool = False,
     whitespace: bool = False,
 ) -> dict[str, object]:
-    kwargs = {
-        "defaults": defaults,
-        "syntax": syntax,
-        "whitespace": whitespace,
-    }
+    kwargs = {"defaults": defaults, "syntax": syntax, "whitespace": whitespace}
 
     out: dict[str, object] = {}
     for field in filter_node_fields(
@@ -148,12 +207,8 @@ def as_tuple(
     defaults: bool = False,
     syntax: bool = False,
     whitespace: bool = False,
-) -> tuple[str, tuple[object, ...]]:
-    kwargs = {
-        "defaults": defaults,
-        "syntax": syntax,
-        "whitespace": whitespace,
-    }
+) -> tuple[type[cst.CSTNode], tuple[object, ...]]:
+    kwargs = {"defaults": defaults, "syntax": syntax, "whitespace": whitespace}
 
     out: list[object] = []
     for field in filter_node_fields(
@@ -175,11 +230,11 @@ def as_tuple(
 
         out.append(value)
 
-    return type(node).__name__, tuple(out)
+    return type(node), tuple(out)
 
 
 def node_hash(node: cst.CSTNode, /, **kwargs: bool) -> int:
-    return hash((type(node).__name__, as_tuple(node, **kwargs)))
+    return hash(as_tuple(node, **kwargs))
 
 
 @functools.cache  # type: ignore[no-any-expr]
@@ -198,10 +253,11 @@ def parse_str(
 
 
 def parse_kwarg(key: str, value: cst.BaseExpression, /) -> cst.Arg:
+    no_whitespace = cst.SimpleWhitespace("")
     return cst.Arg(
         keyword=cst.Name(key),
         value=value,
-        equal=cst.AssignEqual(cst.SimpleWhitespace(""), cst.SimpleWhitespace("")),
+        equal=cst.AssignEqual(no_whitespace, no_whitespace),
     )
 
 
@@ -219,8 +275,22 @@ def parse_tuple(
     return cst.Tuple(elems) if parens else cst.Tuple(elems, [], [])
 
 
-def _name_or_expr[T: cst.BaseExpression](value: T | str, /) -> T | cst.Name:
-    return cst.Name(value) if isinstance(value, str) else value
+def parse_name(value: str, /) -> _FullName:
+    if "." in value:
+        base, attr = value.rsplit(".", 1)
+        return cst.Attribute(parse_name(base), cst.Name(attr))
+    return cst.Name(value)
+
+
+@overload
+def _name_or_expr[T: cst.BaseExpression](value: T, /) -> T: ...
+@overload
+def _name_or_expr[T: cst.BaseExpression](value: str, /) -> cst.Name | cst.Attribute: ...
+def _name_or_expr[T: cst.BaseExpression](
+    value: T | str,
+    /,
+) -> T | cst.Name | cst.Attribute:
+    return parse_name(value) if isinstance(value, str) else value
 
 
 def parse_call(
@@ -259,8 +329,157 @@ def parse_assign(
     return cst.Assign(list(map(cst.AssignTarget, targets)), value)
 
 
-def parse_name(value: str, /) -> cst.Name | cst.Attribute:
-    if "." in value:
-        base, attr = value.rsplit(".", 1)
-        return cst.Attribute(parse_name(base), cst.Name(attr))
-    return cst.Name(value)
+__dataclass_kwds = {"frozen": True, "slots": True, "unsafe_hash": False, "eq": False}
+
+
+# TODO(jorenham): use `@sealed` here
+# https://github.com/jorenham/unpy/issues/42
+@dataclasses.dataclass(**__dataclass_kwds)
+class TypeParameter:
+    name: str
+    default: cst.BaseExpression | None = None
+
+    @override
+    def __hash__(self, /) -> int:
+        return hash(self._as_tuple())
+
+    @override
+    def __eq__(self, other: object, /) -> bool:
+        if self is other:
+            return True
+        if type(self) is not type(other):
+            return False
+
+        return hash(self) == hash(other)
+
+    def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
+        """The imports it would require to use this as typevar-like (no PEP 695)."""
+        raise NotImplementedError
+
+    def as_assign(self, /) -> cst.Assign:
+        raise NotImplementedError
+
+    def as_subscript_element(self, /) -> cst.SubscriptElement:
+        return cst.SubscriptElement(cst.Index(cst.Name(self.name)))
+
+    def _as_tuple(self, /) -> tuple[object, ...]:
+        return tuple(  # type: ignore[no-any-expr]
+            as_tuple(value)
+            if isinstance(
+                value := cast(
+                    object,
+                    getattr(self, cast(dataclasses.Field[object], field).name),
+                ),
+                cst.CSTNode,
+            )
+            else value
+            for field in dataclasses.fields(self)  # type: ignore[no-any-expr]
+        )
+
+
+@final
+@dataclasses.dataclass(**__dataclass_kwds)
+class TypeVar(TypeParameter):
+    covariant: bool = False
+    contravariant: bool = False
+    infer_variance: bool = False
+
+    bound: cst.BaseExpression | None = None
+    constraints: tuple[cst.BaseExpression, ...] = ()
+
+    import_alias: str = _NAME_TVAR
+
+    @override
+    def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
+        module = (
+            _MODULE_TPX
+            if (target < (3, 13) and self.default)
+            or (target < (3, 12) and self.infer_variance)
+            else _MODULE_TP
+        )
+        return frozenset({(module, _NAME_TVAR)})
+
+    @override
+    def as_assign(self, /) -> cst.Assign:
+        args = parse_str(self.name), *self.constraints
+
+        kwargs: dict[str, cst.BaseExpression] = {}
+        for key in ("covariant", "contravariant", "infer_variance"):
+            if value := cast(bool, getattr(self, key)):
+                kwargs[key] = parse_bool(value)
+        if bound := self.bound:
+            kwargs["bound"] = bound
+        if default := self.default:
+            kwargs["default"] = default
+
+        return parse_assign(self.name, parse_call(self.import_alias, *args, **kwargs))
+
+
+@final
+@dataclasses.dataclass(**__dataclass_kwds)
+class TypeVarTuple(TypeParameter):
+    default_star: bool = False
+
+    import_alias: str = _NAME_PARAMSPEC
+    import_alias_unpack: str = _NAME_UNPACK
+
+    @override
+    def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
+        # `typing.TypeVarTuple` exists since 3.11, and supports `default=` since 3.13
+
+        if target < (3, 11) or self.default_star:
+            # unpacking a `default=` always requires `Unpack`
+            module = _MODULE_TPX if target < (3, 13) else _MODULE_TP
+            return frozenset({(module, _NAME_TVAR_TUPLE), (module, _NAME_UNPACK)})
+
+        module = _MODULE_TPX if target < (3, 13) and self.default else _MODULE_TP
+        return frozenset({(module, _NAME_TVAR_TUPLE)})
+
+    @override
+    def as_assign(self, /) -> cst.Assign:
+        kwargs: dict[str, cst.BaseExpression] = {}
+        if self.default_star:
+            kwargs["default"] = self.as_unpack()
+        elif default := self.default:
+            kwargs["default"] = default
+
+        return parse_assign(
+            cst.Name(self.name),
+            parse_call(self.import_alias, parse_str(self.name), **kwargs),
+        )
+
+    @override
+    def as_subscript_element(self, /, *, star: bool = False) -> cst.SubscriptElement:
+        if star:
+            index = cst.Index(cst.Name(self.name), star="*")
+        else:
+            index = cst.Index(self.as_unpack())
+        return cst.SubscriptElement(index)
+
+    def as_unpack(self, /) -> cst.BaseExpression:
+        return cst.Subscript(
+            parse_name(self.import_alias_unpack),
+            [super().as_subscript_element()],
+        )
+
+
+@final
+@dataclasses.dataclass(**__dataclass_kwds)
+class ParamSpec(TypeParameter):
+    import_alias: str = _NAME_PARAMSPEC
+
+    @override
+    def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
+        module = _MODULE_TPX if target < (3, 13) and self.default else _MODULE_TP
+        return frozenset({(module, _NAME_PARAMSPEC)})
+
+    @override
+    def as_assign(self, /) -> cst.Assign:
+        return parse_assign(
+            cst.Name(self.name),
+            parse_call(
+                self.import_alias,
+                parse_str(self.name),
+                **({"default": default} if (default := self.default) else {}),
+            ),
+        )
