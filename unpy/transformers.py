@@ -89,8 +89,9 @@ class StubTransformer(m.MatcherDecoratableTransformer):
     visitor: Final[StubVisitor]
     target: Final[PythonVersion]
 
-    imports_del: set[str]
-    imports_add: set[str]
+    # {(module, name), ...}
+    _imports_del: Final[set[tuple[str, str]]]
+    _imports_add: Final[set[tuple[str, str]]]
 
     # whether the type alias parameters are referenced in the order they are defined
     _type_alias_alignment: Final[dict[str, bool]]
@@ -101,9 +102,8 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         self.visitor = visitor
         self.target = target
 
-        self.imports_del = set()
-        self.imports_add = set()
-
+        self._imports_del = set()
+        self._imports_add = set()
         self._type_alias_alignment = {}
         self._stack = collections.deque()
 
@@ -125,15 +125,16 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         """Get or add the import and return the full name or alias."""
         assert name.isidentifier(), name
 
-        is_backport = module == "typing_extensions"
+        module_tpx = "typing_extensions"
+
         if has_backport is None:
-            has_backport = module == "typing" or (
-                is_backport
-                and module in NAMES_BACKPORT_TPX
+            has_backport = (
+                module == "typing"
+                or module in NAMES_BACKPORT_TPX
                 and name in NAMES_BACKPORT_TPX[module]
             )
         elif has_backport:
-            assert not is_backport
+            assert module != module_tpx
 
         visitor = self.visitor
 
@@ -144,39 +145,29 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         if alias:
             return alias
 
-        if f"{module}.{name}" in self.imports_add:
-            return name
-        if has_backport and f"typing_extensions.{name}" in self.imports_add:
+        if (module, name) in (imports_add := self._imports_add):
             return name
 
-        fqn = f"{module}.{name}"
         if has_backport:
             # check if the typing_extensions backport is already desired or imported
-            fqn_tpx = f"typing_extensions.{name}"
-            assert fqn_tpx != fqn
-
-            if fqn_tpx in self.imports_add:
+            if (module_tpx, name) in imports_add:
                 return name
-            if alias_tpx := visitor.imported_as("typing_extensions", name):
-                assert fqn_tpx not in self.imports_add
+            if alias_tpx := visitor.imported_as(module_tpx, name):
+                assert (module_tpx, name) not in imports_add
                 return alias_tpx
 
-        self.imports_add.add(fqn)
+        imports_add.add((module, name))
         return name
 
     def _discard_import(self, module: str, name: str, /) -> str | None:
         """Remove the import, or prevent it from being added."""
-        fqn = f"{module}.{name}"
-
-        # only consider "direct" imports, i.e. `from {module} import {name}`,
-        # and ignore `from {module} import *` or `import {module}`
         if alias := self.visitor.imported_as(module, name):
-            self.imports_del.add(fqn)
-            assert fqn not in self.imports_add, fqn
+            self._imports_del.add((module, name))
+            assert (module, name) not in self._imports_add, (module, name)
             return alias
 
-        if fqn in self.imports_add:
-            self.imports_add.discard(fqn)
+        if (module, name) in self._imports_add:
+            self._imports_add.discard((module, name))
             return name
 
         return None
@@ -243,6 +234,7 @@ class StubTransformer(m.MatcherDecoratableTransformer):
             self._require_import("typing_extensions", "TypeAliasType")
 
     def __collect_imports_generic(self, /) -> None:
+        # add the `typing.Generic` if needed
         visitor = self.visitor
         if visitor.imported_from_typing_as("Generic"):
             return
@@ -274,28 +266,14 @@ class StubTransformer(m.MatcherDecoratableTransformer):
             return updated_node
         assert updated_node.module
 
-        fqn_del, fqn_add = self.imports_del, self.imports_add
-        if not fqn_del and not fqn_add:
-            return updated_node
-
         module = uncst.get_name_strict(updated_node.module)
-        assert module
-        assert all(map(str.isidentifier, module.split("."))), module
-
-        prefix = f"{module}."
-        i0 = len(prefix)
-        names_del = {fqn[i0:]: fqn for fqn in fqn_del if fqn.startswith(prefix)}
-        names_add = {fqn[i0:]: fqn for fqn in fqn_add if fqn.startswith(prefix)}
+        names_del = {name for _module, name in self._imports_del if _module == module}
+        names_add = {name for _module, name in self._imports_add if _module == module}
 
         if not (names_del or names_add):
             return updated_node
 
-        assert all(map(str.isidentifier, names_del)), names_add
-        assert all(map(str.isidentifier, names_add)), names_add
-
-        aliases = updated_node.names
-
-        aliases_new = [a for a in aliases if a.name.value not in names_del]
+        aliases_new = [a for a in updated_node.names if a.name.value not in names_del]
         aliases_new.extend(cst.ImportAlias(cst.Name(name)) for name in names_add)
         aliases_new.sort(key=lambda a: uncst.get_name_strict(a.name))
 
@@ -436,8 +414,7 @@ class StubTransformer(m.MatcherDecoratableTransformer):
 
         # group the to-add imports statements per module like {module: [name, ...]}
         imports_from_add: dict[str, list[str]] = collections.defaultdict(list)
-        for fqn in sorted(self.imports_add):
-            module, name = fqn.rsplit(".", 1)
+        for module, name in sorted(self._imports_add):
             if module not in from_modules:
                 imports_from_add[module].append(name)
 
