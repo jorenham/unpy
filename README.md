@@ -176,7 +176,7 @@ potential goals of `unpy`:
     - [x] De-duplicate extracted typevar-likes with same name if equivalent
     - [ ] Rename extracted typevar-likes with same name if not equivalent
     - [ ] Infer variance of `typing_extensions.TypeVar(..., infer_variance=True)` whose
-      name does not end with `_contra`/`_in` (`contravariant=True`) or `_co`/`_out`
+      name does not end with `_contra` (`contravariant=True`) or `_co`
       (`covariant=True`)
     - [x] Convert `default=Any` to `default={bound}` or `default=object`
     - [x] Remove `bound=Any` and `bound=object`
