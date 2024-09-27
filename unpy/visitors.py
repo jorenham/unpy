@@ -9,15 +9,20 @@ import unpy._cst as uncst
 
 __all__ = ("StubVisitor",)
 
+_MODULE_BUILTINS: Final = "builtins"
+_MODULE_PATHLIB: Final = "pathlib"
+_MODULE_TP: Final = "typing"
+_MODULE_TPX: Final = "typing_extensions"
+
 _ILLEGAL_BASES: Final = (
-    ("builtins", "BaseExceptionGroup"),
-    ("builtins", "ExceptionGroup"),
-    ("builtins", "_IncompleteInputError"),
-    ("builtins", "PythonFinalizationError"),
-    ("builtins", "EncodingWarning"),
-    ("pathlib", "Path"),
-    ("typing", "Any"),
-    ("typing_extensions", "Any"),
+    (_MODULE_BUILTINS, "BaseExceptionGroup"),
+    (_MODULE_BUILTINS, "ExceptionGroup"),
+    (_MODULE_BUILTINS, "_IncompleteInputError"),
+    (_MODULE_BUILTINS, "PythonFinalizationError"),
+    (_MODULE_BUILTINS, "EncodingWarning"),
+    (_MODULE_PATHLIB, "Path"),
+    (_MODULE_TP, "Any"),
+    (_MODULE_TPX, "Any"),
 )
 
 
@@ -105,11 +110,11 @@ class StubVisitor(cst.CSTVisitor):
         >>> _ = wrapper.visit(visitor := StubVisitor())
         >>> visitor.imported_as("collections.abc", "Set")
         'col.abc.Set'
-        >>> visitor.imported_as("typing_extensions", "Never")
+        >>> visitor.imported_as(_MODULE_TPX, "Never")
         'tpx.Never'
         >>> visitor.imported_as("types", "NoneType")
         'NoneType'
-        >>> visitor.imported_as("typing", "Protocol")
+        >>> visitor.imported_as(_MODULE_TP, "Protocol")
         'Protocol'
 
         ```
@@ -143,9 +148,9 @@ class StubVisitor(cst.CSTVisitor):
         assert all(parts), fqn
 
         default: str | None = None
-        if module == "builtins" or (
+        if module == _MODULE_BUILTINS or (
             # type-check only
-            module in {"typing", "typing_extensions"}
+            module in {_MODULE_TP, _MODULE_TPX}
             and name in {"reveal_type", "reveal_locals"}
         ):
             default = name
@@ -154,7 +159,7 @@ class StubVisitor(cst.CSTVisitor):
                 # and prioritize returning an explicit import alias, if any.
                 return name
 
-        _imports = {"builtins": "__builtins__"} | imports
+        _imports = {_MODULE_BUILTINS: "__builtins__"} | imports
 
         # NOTE: This assumes that top-level modules export the submodule, e.g. having a
         # `import collections as cs` will cause `collections.abc.Buffer` to resolve
@@ -172,8 +177,8 @@ class StubVisitor(cst.CSTVisitor):
         assert name.isidentifier(), name
 
         return (
-            self.imported_as("typing", name)
-            or self.imported_as("typing_extensions", name)
+            self.imported_as(_MODULE_TP, name)
+            or self.imported_as(_MODULE_TPX, name)
         )  # fmt: skip
 
     def _register_import(
@@ -218,7 +223,7 @@ class StubVisitor(cst.CSTVisitor):
             raise NotImplementedError("stringified type parameter defaults")
 
         name_any = self.imported_from_typing_as("Any")
-        name_object = self.imported_as("builtins", "object")
+        name_object = self.imported_as(_MODULE_BUILTINS, "object")
         assert name_object
 
         if _default_any := (
@@ -421,7 +426,7 @@ class StubVisitor(cst.CSTVisitor):
             base = arg.value
 
             # unwrap `typing.cast` calls
-            cast_name = self.imported_as("typing", "cast")
+            cast_name = self.imported_as(_MODULE_TP, "cast")
             while isinstance(base, cst.Call) and uncst.get_name(base.func) == cast_name:
                 assert len(base.args) == 2
                 base = base.args[1].value

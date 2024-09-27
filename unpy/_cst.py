@@ -4,6 +4,7 @@ from collections import deque
 from collections.abc import Iterable
 from itertools import starmap
 from typing import (
+    Final,
     Literal,
     TypeAlias,
     TypedDict,
@@ -42,10 +43,17 @@ __all__ = [
     "parse_tuple",
 ]
 
-
 # PEP 695 "syntax" breaks `isinstance`
 _FullName: TypeAlias = cst.Name | cst.Attribute
 _AssignTarget: TypeAlias = cst.BaseAssignTargetExpression | str
+
+_MODULE_TP: Final = "typing"
+_MODULE_TPX: Final = "typing_extensions"
+
+_NAME_TVAR: Final = "TypeVar"
+_NAME_TVAR_TUPLE: Final = "TypeVarTuple"
+_NAME_PARAMSPEC: Final = "ParamSpec"
+_NAME_UNPACK: Final = "Unpack"
 
 
 class _ModuleKwargs(TypedDict):
@@ -55,11 +63,7 @@ class _ModuleKwargs(TypedDict):
     has_trailing_newline: bool
 
 
-def get_code(
-    node: cst.CSTNode,
-    /,
-    **kwargs: Unpack[_ModuleKwargs],
-) -> str:
+def get_code(node: cst.CSTNode, /, **kwargs: Unpack[_ModuleKwargs]) -> str:
     """
     Generate the code of the given node.
 
@@ -174,11 +178,7 @@ def as_dict(
     syntax: bool = False,
     whitespace: bool = False,
 ) -> dict[str, object]:
-    kwargs = {
-        "defaults": defaults,
-        "syntax": syntax,
-        "whitespace": whitespace,
-    }
+    kwargs = {"defaults": defaults, "syntax": syntax, "whitespace": whitespace}
 
     out: dict[str, object] = {}
     for field in filter_node_fields(
@@ -208,11 +208,7 @@ def as_tuple(
     syntax: bool = False,
     whitespace: bool = False,
 ) -> tuple[type[cst.CSTNode], tuple[object, ...]]:
-    kwargs = {
-        "defaults": defaults,
-        "syntax": syntax,
-        "whitespace": whitespace,
-    }
+    kwargs = {"defaults": defaults, "syntax": syntax, "whitespace": whitespace}
 
     out: list[object] = []
     for field in filter_node_fields(
@@ -257,10 +253,11 @@ def parse_str(
 
 
 def parse_kwarg(key: str, value: cst.BaseExpression, /) -> cst.Arg:
+    no_whitespace = cst.SimpleWhitespace("")
     return cst.Arg(
         keyword=cst.Name(key),
         value=value,
-        equal=cst.AssignEqual(cst.SimpleWhitespace(""), cst.SimpleWhitespace("")),
+        equal=cst.AssignEqual(no_whitespace, no_whitespace),
     )
 
 
@@ -390,17 +387,17 @@ class TypeVar(TypeParameter):
     bound: cst.BaseExpression | None = None
     constraints: tuple[cst.BaseExpression, ...] = ()
 
-    import_alias: str = "TypeVar"
+    import_alias: str = _NAME_TVAR
 
     @override
     def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
         module = (
-            "typing_extensions"
+            _MODULE_TPX
             if (target < (3, 13) and self.default)
             or (target < (3, 12) and self.infer_variance)
-            else "typing"
+            else _MODULE_TP
         )
-        return frozenset({(module, "TypeVar")})
+        return frozenset({(module, _NAME_TVAR)})
 
     @override
     def as_assign(self, /) -> cst.Assign:
@@ -423,8 +420,8 @@ class TypeVar(TypeParameter):
 class TypeVarTuple(TypeParameter):
     default_star: bool = False
 
-    import_alias: str = "ParamSpec"
-    import_alias_unpack: str = "Unpack"
+    import_alias: str = _NAME_PARAMSPEC
+    import_alias_unpack: str = _NAME_UNPACK
 
     @override
     def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
@@ -432,11 +429,11 @@ class TypeVarTuple(TypeParameter):
 
         if target < (3, 11) or self.default_star:
             # unpacking a `default=` always requires `Unpack`
-            module = "typing_extensions" if target < (3, 13) else "typing"
-            return frozenset({(module, "TypeVarTuple"), (module, "Unpack")})
+            module = _MODULE_TPX if target < (3, 13) else _MODULE_TP
+            return frozenset({(module, _NAME_TVAR_TUPLE), (module, _NAME_UNPACK)})
 
-        module = "typing_extensions" if target < (3, 13) and self.default else "typing"
-        return frozenset({(module, "TypeVarTuple")})
+        module = _MODULE_TPX if target < (3, 13) and self.default else _MODULE_TP
+        return frozenset({(module, _NAME_TVAR_TUPLE)})
 
     @override
     def as_assign(self, /) -> cst.Assign:
@@ -469,12 +466,12 @@ class TypeVarTuple(TypeParameter):
 @final
 @dataclasses.dataclass(**__dataclass_kwds)
 class ParamSpec(TypeParameter):
-    import_alias: str = "ParamSpec"
+    import_alias: str = _NAME_PARAMSPEC
 
     @override
     def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
-        module = "typing_extensions" if target < (3, 13) and self.default else "typing"
-        return frozenset({(module, "ParamSpec")})
+        module = _MODULE_TPX if target < (3, 13) and self.default else _MODULE_TP
+        return frozenset({(module, _NAME_PARAMSPEC)})
 
     @override
     def as_assign(self, /) -> cst.Assign:

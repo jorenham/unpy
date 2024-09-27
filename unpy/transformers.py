@@ -16,14 +16,23 @@ type _Node_01[N: cst.CSTNode] = N | cst.RemovalSentinel
 type _Node_1N[N: cst.CSTNode, NN: cst.CSTNode] = N | cst.FlattenSentinel[N | NN]
 
 
+_MODULE_TP: Final = "typing"
+_MODULE_TPX: Final = "typing_extensions"
+
+_NAME_GENERIC: Final = "Generic"
+_NAME_PROTOCOL: Final = "Protocol"
+_NAME_ALIAS: Final = "TypeAlias"
+_NAME_ALIAS_PEP695: Final = "TypeAliasType"
+
+
 def _new_typing_import_index(module_node: cst.Module) -> int:
     """
     Get the index of the module body at which to insert a new
     `from typing[_extensions] import _` statement.
 
     This will look through the imports at the beginning of the module, it will insert:
-    - *after* the last `from {module} import _` statement s.t. `module <= "typing"`
-    - *before* the first `from {module} import _` s.t. `module > "typing"`
+    - *after* the last `from {module} import _` statement s.t. `module <= _MODULE_TP`
+    - *before* the first `from {module} import _` s.t. `module > _MODULE_TP`
     - *before* the first function-, or class definition
     - *before* the first compound statement
 
@@ -42,7 +51,7 @@ def _new_typing_import_index(module_node: cst.Module) -> int:
             if isinstance(stmt, cst.ImportFrom):
                 if stmt.relative or stmt.module is None:
                     return i
-                if uncst.get_name_strict(stmt.module) > "typing":
+                if uncst.get_name_strict(stmt.module) > _MODULE_TP:
                     # insert alphabetically, but before any relative imports
                     return i + 1
 
@@ -125,20 +134,18 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         """Get or add the import and return the full name or alias."""
         assert name.isidentifier(), name
 
-        module_tpx = "typing_extensions"
-
         if has_backport is None:
             has_backport = (
-                module == "typing"
+                module == _MODULE_TP
                 or module in NAMES_BACKPORT_TPX
                 and name in NAMES_BACKPORT_TPX[module]
             )
         elif has_backport:
-            assert module != module_tpx
+            assert module != _MODULE_TPX
 
         visitor = self.visitor
 
-        if has_backport and module == "typing":
+        if has_backport and module == _MODULE_TP:
             alias = visitor.imported_from_typing_as(name)
         else:
             alias = visitor.imported_as(module, name)
@@ -150,10 +157,10 @@ class StubTransformer(m.MatcherDecoratableTransformer):
 
         if has_backport:
             # check if the typing_extensions backport is already desired or imported
-            if (module_tpx, name) in imports_add:
+            if (_MODULE_TPX, name) in imports_add:
                 return name
-            if alias_tpx := visitor.imported_as(module_tpx, name):
-                assert (module_tpx, name) not in imports_add
+            if alias_tpx := visitor.imported_as(_MODULE_TPX, name):
+                assert (_MODULE_TPX, name) not in imports_add
                 return alias_tpx
 
         imports_add.add((module, name))
@@ -178,8 +185,8 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         for type_param in self.visitor.type_params.values():
             for module, name in type_param.required_imports(target):
                 self._require_import(module, name)
-                if module == "typing_extensions":
-                    self._discard_import("typing", name)
+                if module == _MODULE_TPX:
+                    self._discard_import(_MODULE_TP, name)
 
     def __collect_imports_backports(self, /) -> None:
         # collect the imports that should replaced with a `typing_extensions` backport
@@ -206,7 +213,7 @@ class StubTransformer(m.MatcherDecoratableTransformer):
                 and target < req
             ):
                 self._discard_import(module, name)
-                self._require_import("typing_extensions", name, has_backport=False)
+                self._require_import(_MODULE_TPX, name, has_backport=False)
             elif (orig_fqns := NAMES_DEPRECATED_ALIASES.get(module)) and (
                 orig_fqn := orig_fqns.get(name)
             ):
@@ -229,31 +236,27 @@ class StubTransformer(m.MatcherDecoratableTransformer):
 
         total = sum(aligned.values())
         if total and self.target < (3, 12):
-            self._require_import("typing", "TypeAlias")
+            self._require_import(_MODULE_TP, _NAME_ALIAS, has_backport=True)
         if len(aligned) - total:
-            self._require_import("typing_extensions", "TypeAliasType")
+            self._require_import(_MODULE_TPX, _NAME_ALIAS_PEP695, has_backport=False)
 
     def __collect_imports_generic(self, /) -> None:
         # add the `typing.Generic` if needed
         visitor = self.visitor
-        if visitor.imported_from_typing_as("Generic"):
+        if visitor.imported_from_typing_as(_NAME_GENERIC):
             return
 
         class_bases = visitor.class_bases
         class_type_params = visitor.type_params_grouped
 
-        alias_protocol = visitor.imported_from_typing_as("Protocol")
+        alias_protocol = visitor.imported_from_typing_as(_NAME_PROTOCOL)
 
         for name, bases in class_bases.items():
-            if (
-                not class_type_params.get(name)
-                or alias_protocol
-                and alias_protocol in bases
+            if class_type_params.get(name) and (
+                not alias_protocol or alias_protocol not in bases
             ):
-                continue
-
-            self._require_import("typing", "Generic")
-            return
+                self._require_import(_MODULE_TP, _NAME_GENERIC, has_backport=True)
+                break
 
     @override
     def leave_ImportFrom(
@@ -306,21 +309,21 @@ class StubTransformer(m.MatcherDecoratableTransformer):
             return updated_node
 
         if not self._type_alias_alignment[name]:
-            module = "typing" if self.target >= (3, 12) else "typing_extensions"
+            module = _MODULE_TP if self.target >= (3, 12) else _MODULE_TPX
             return uncst.parse_assign(
                 name,
                 uncst.parse_call(
-                    self._require_import(module, "TypeAliasType"),
+                    self._require_import(module, _NAME_ALIAS_PEP695),
                     uncst.parse_str(name),
                     value,
                     type_params=uncst.parse_tuple(p.param.name for p in type_params),
                 ),
             )
 
-        type_alias_alias = self._require_import("typing", "TypeAlias")
+        type_alias = self._require_import(_MODULE_TP, _NAME_ALIAS, has_backport=True)
         return cst.AnnAssign(
             cst.Name(name),
-            cst.Annotation(uncst.parse_name(type_alias_alias)),
+            cst.Annotation(uncst.parse_name(type_alias)),
             value,
         )
 
@@ -375,8 +378,8 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         base_list = visitor.class_bases[qualname]
         base_set = set(base_list)
 
-        name_protocol = visitor.imported_from_typing_as("Protocol")
-        name_generic = visitor.imported_from_typing_as("Generic")
+        name_protocol = visitor.imported_from_typing_as(_NAME_PROTOCOL)
+        name_generic = visitor.imported_from_typing_as(_NAME_GENERIC)
         assert name_generic not in base_set
 
         new_bases = list(base_args)
@@ -391,10 +394,10 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         else:
             # insert `Generic` after all other positional class args
             i = len(base_list)
-            generic = uncst.parse_name(name_generic or "Generic")
+            generic = uncst.parse_name(name_generic or _NAME_GENERIC)
             new_bases.insert(i, cst.Arg(uncst.parse_subscript(generic, *tpar_names)))
 
-            self._require_import("typing", "Generic")
+            self._require_import(_MODULE_TP, _NAME_GENERIC, has_backport=True)
 
         return updated_node.with_changes(type_parameters=None, bases=new_bases)
 
