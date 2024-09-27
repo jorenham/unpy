@@ -1,78 +1,19 @@
 import collections
-from typing import TYPE_CHECKING, Final, override
+from typing import Final, override
 
 import libcst as cst
 import libcst.matchers as m
 
-from ._cst import (
-    get_name_strict,
-    parse_assign,
-    parse_call,
-    parse_name,
-    parse_str,
-    parse_subscript,
-    parse_tuple,
-)
-from ._stdlib import NAMES_BACKPORT_TPX, NAMES_DEPRECATED_ALIASES
-from ._types import AnyFunction, PythonVersion
-from .visitors import StubVisitor
+import unpy._cst as uncst
 
-if TYPE_CHECKING:
-    from collections.abc import Generator
+from ._stdlib import NAMES_BACKPORT_TPX, NAMES_DEPRECATED_ALIASES
+from ._types import PythonVersion
+from .visitors import StubVisitor
 
 __all__ = ("StubTransformer",)
 
 type _Node_01[N: cst.CSTNode] = N | cst.RemovalSentinel
 type _Node_1N[N: cst.CSTNode, NN: cst.CSTNode] = N | cst.FlattenSentinel[N | NN]
-
-
-def _backport_type_alias(node: cst.SimpleStatementLine) -> cst.SimpleStatementLine:
-    assert len(node.body) == 1
-    alias_original = cst.ensure_type(node.body[0], cst.TypeAlias)
-    name = alias_original.name
-
-    type_parameters = alias_original.type_parameters
-    tpars = type_parameters.params if type_parameters else ()
-
-    alias_updated: cst.Assign | cst.AnnAssign
-    if len(tpars) > 1:
-        # TODO: only do this if the order differs between the LHS and RHS.
-        alias_updated = parse_assign(
-            name,
-            parse_call(
-                "TypeAliasType",
-                parse_str(name.value),
-                alias_original.value,
-                type_params=parse_tuple(p.param.name for p in tpars),
-            ),
-        )
-    else:
-        alias_updated = cst.AnnAssign(
-            name,
-            cst.Annotation(cst.Name("TypeAlias")),
-            alias_original.value,
-        )
-
-    # if not tpars:
-    return cst.SimpleStatementLine(
-        [alias_updated],
-        leading_lines=node.leading_lines,
-        trailing_whitespace=node.trailing_whitespace,
-    )
-
-
-def _remove_tpars[N: (cst.ClassDef, cst.FunctionDef)](node: N, /) -> N:
-    if node.type_parameters:
-        return node.with_changes(type_parameters=None)
-    return node
-
-
-def _workaround_libcst_runtime_typecheck_bug[F: AnyFunction](f: F, /) -> F:
-    # LibCST crashes if `cst.SimpleStatementLine` is included in the return type
-    # annotation.
-    # This workaround circumvents this by hiding the return type annation at runtime.
-    del f.__annotations__["return"]  # type: ignore[no-any-expr]
-    return f
 
 
 def _new_typing_import_index(module_node: cst.Module) -> int:
@@ -85,6 +26,7 @@ def _new_typing_import_index(module_node: cst.Module) -> int:
     - *before* the first `from {module} import _` s.t. `module > "typing"`
     - *before* the first function-, or class definition
     - *before* the first compound statement
+
     """
     i_insert = 0
     for i, statement in enumerate(module_node.body):
@@ -100,7 +42,7 @@ def _new_typing_import_index(module_node: cst.Module) -> int:
             if isinstance(stmt, cst.ImportFrom):
                 if stmt.relative or stmt.module is None:
                     return i
-                if get_name_strict(stmt.module) > "typing":
+                if uncst.get_name_strict(stmt.module) > "typing":
                     # insert alphabetically, but before any relative imports
                     return i + 1
 
@@ -112,44 +54,110 @@ def _new_typing_import_index(module_node: cst.Module) -> int:
     return i_insert
 
 
+def _new_typevars_index(module_node: cst.Module) -> int:
+    """
+    Returns the index of either the
+    - the statement after the last import
+    - the first the first definition of a constant, typealias, function, or class.
+    """
+    i_insert = 0
+    for i, statement in enumerate(module_node.body):
+        if (
+            isinstance(statement, cst.Import | cst.ImportFrom)
+            or (
+                # conditional imports
+                isinstance(statement, cst.If)
+                and isinstance(statement.body, cst.IndentedBlock)
+                and isinstance(stmt0 := statement.body.body[0], cst.SimpleStatementLine)
+                and isinstance(stmt0.body[0], cst.Import | cst.ImportFrom)
+            )
+            or (
+                isinstance(statement, cst.Assign)
+                and len(statement.targets) == 1
+                and isinstance(name := statement.targets[0].target, cst.Name)
+                and name.value == "__all__"
+            )
+        ):
+            i_insert = i + 1
+        else:
+            break
+
+    return i_insert
+
+
 class StubTransformer(m.MatcherDecoratableTransformer):
     visitor: Final[StubVisitor]
     target: Final[PythonVersion]
+
+    # whether the type alias parameters are referenced in the order they are defined
+    _type_alias_alignment: Final[dict[str, bool]]
+
     _stack: Final[collections.deque[str]]
 
     def __init__(self, visitor: StubVisitor, /, target: PythonVersion) -> None:
-        assert visitor.imports_del <= set(visitor.imports), visitor.imports_del
-        assert not visitor.imports_add & set(visitor.imports), visitor.imports_add
+        assert not visitor.imports_add
+        assert not visitor.imports_del
 
         self.visitor = visitor
         self.target = target
+
+        self._type_alias_alignment = {}
         self._stack = collections.deque()
+
+        self.__collect_imports_type_params()
+        self.__collect_imports_backports()
+        self.__collect_imports_generic()
+        self.__collect_imports_type_aliases()
 
         super().__init__()
 
-    @property
-    def missing_tvars(self, /) -> dict[str, list[cst.Assign]]:
-        return self.visitor.missing_tvars
+    def _require_import(self, module: str, name: str, /) -> str:
+        visitor = self.visitor
+        if has_backport := module == "typing":
+            alias = visitor.imported_from_typing_as(name)
+        else:
+            alias = visitor.imported_as(module, name)
+        if alias:
+            return alias
 
-    @override
-    def visit_Module(self, /, node: cst.Module) -> None:
+        # if f"{module}.{name}" in visitor.imports_add:
+        #     return name
+        # if has_backport and f"typing_extensions.{name}" in visitor.imports_add:
+        #     return name
+
+        if module == "typing_extensions":
+            fqn_typing = f"typing.{name}"
+            if fqn_typing in visitor.imports:
+                visitor.prevent_import("typing", name)
+            else:
+                visitor.imports_add.discard(fqn_typing)
+
+        return visitor.desire_import(module, name, has_backport=has_backport)
+
+    def __collect_imports_type_params(self, /) -> None:
+        # collect the missing imports for the typevar-likes
+        target = self.target
+        for type_param in self.visitor.type_params.values():
+            for module, name in type_param.required_imports(target):
+                self._require_import(module, name)
+
+    def __collect_imports_backports(self, /) -> None:
         visitor = self.visitor
         target = self.target
 
-        if target >= (3, 12):
-            # PEP 695 makes these redundant
-            for tvar_name in ["TypeVar", "TypeVarTuple", "ParamSpec"]:
-                visitor.imports_add.discard(f"typing.{tvar_name}")
-        if target >= (3, 13):
-            # PEP 695 & PEP 696 make these redundant
-            visitor.imports_add.clear()
-            visitor.imports_del.clear()
-
         for fqn in visitor.imports:
-            if "." not in fqn or fqn.startswith(".") or fqn.endswith("*"):
+            if fqn[0] == "." or fqn[-1] == "*" or "." not in fqn:
                 continue
 
+            if fqn.startswith("__future__"):
+                # TODO(jorenham): report that `__future__.annotations` is redundant
+                # https://github.com/jorenham/unpy/issues/43
+                raise NotImplementedError("__future__")
+
             module, name = fqn.rsplit(".", 1)
+
+            # TODO(jorenham): report that `typing.TYPE_CHECKING` is redundant
+            # https://github.com/jorenham/unpy/issues/45
 
             if (
                 (reqs := NAMES_BACKPORT_TPX.get(module))
@@ -170,6 +178,40 @@ class StubTransformer(m.MatcherDecoratableTransformer):
 
                 visitor.desire_import(module_new, name_new)
 
+    def __collect_imports_type_aliases(self, /) -> None:
+        aligned = self._type_alias_alignment
+        for name, access_order in self.visitor.type_alias_access_order.items():
+            # ixs = [ix for ix in access_order.values() if ix is not None]
+            # aligned[name] = all(ix_lhs == ix_rhs for ix_lhs, ix_rhs in enumerate(ixs))
+            aligned[name] = len(access_order) < 2
+
+        total = sum(aligned.values())
+        if total and self.target < (3, 12):
+            self._require_import("typing", "TypeAlias")
+        if len(aligned) - total:
+            self._require_import("typing_extensions", "TypeAliasType")
+
+    def __collect_imports_generic(self, /) -> None:
+        visitor = self.visitor
+        if visitor.imported_from_typing_as("Generic"):
+            return
+
+        class_bases = visitor.class_bases
+        class_type_params = visitor.type_params_grouped
+
+        alias_protocol = visitor.imported_from_typing_as("Protocol")
+
+        for name, bases in class_bases.items():
+            if (
+                not class_type_params.get(name)
+                or alias_protocol
+                and alias_protocol in bases
+            ):
+                continue
+
+            self._require_import("typing", "Generic")
+            return
+
     @override
     def leave_ImportFrom(
         self,
@@ -187,7 +229,7 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         if not fqn_del and not fqn_add:
             return updated_node
 
-        module = get_name_strict(updated_node.module)
+        module = uncst.get_name_strict(updated_node.module)
         assert module
         assert all(map(str.isidentifier, module.split("."))), module
 
@@ -206,7 +248,7 @@ class StubTransformer(m.MatcherDecoratableTransformer):
 
         aliases_new = [a for a in aliases if a.name.value not in names_del]
         aliases_new.extend(cst.ImportAlias(cst.Name(name)) for name in names_add)
-        aliases_new.sort(key=lambda a: get_name_strict(a.name))
+        aliases_new.sort(key=lambda a: uncst.get_name_strict(a.name))
 
         if not aliases_new:
             return cst.RemoveFromParent()
@@ -217,40 +259,43 @@ class StubTransformer(m.MatcherDecoratableTransformer):
 
         return updated_node.with_changes(names=aliases_new)
 
-    def _prepend_tvars[
-        N: (cst.ClassDef, cst.FunctionDef),
-    ](self, /, node: N) -> _Node_1N[N, cst.SimpleStatementLine]:
-        if not (tvars := self.missing_tvars.get(node.name.value, [])):
-            return node
-
-        leading_lines = node.leading_lines or [cst.EmptyLine()]
-        lines: Generator[cst.SimpleStatementLine] = (
-            cst.SimpleStatementLine([tvar], () if i else leading_lines)
-            for i, tvar in enumerate(tvars)
-        )
-        return cst.FlattenSentinel([*lines, node])
-
-    @m.call_if_inside(m.Module([m.ZeroOrMore(m.SimpleStatementLine())]))
-    @m.leave(m.SimpleStatementLine([m.TypeAlias()]))
-    @_workaround_libcst_runtime_typecheck_bug
-    def leave_type_alias_statement(
+    @override
+    def leave_TypeAlias(
         self,
         /,
-        original_node: cst.SimpleStatementLine,
-        updated_node: cst.SimpleStatementLine,
-    ) -> _Node_1N[cst.SimpleStatementLine, cst.SimpleStatementLine]:
-        node = _backport_type_alias(updated_node)
+        original_node: cst.TypeAlias,
+        updated_node: cst.TypeAlias,
+    ) -> cst.TypeAlias | cst.Assign | cst.AnnAssign:
+        if self.target >= (3, 13):
+            return updated_node
 
-        alias_original = cst.ensure_type(original_node.body[0], cst.TypeAlias)
-        if not (tvars := self.missing_tvars.get(alias_original.name.value, [])):
-            return node
+        name = updated_node.name.value
+        value = updated_node.value
 
-        leading_lines = node.leading_lines or [cst.EmptyLine()]
-        lines = (
-            cst.SimpleStatementLine([tvar], () if i else leading_lines)
-            for i, tvar in enumerate(tvars)
+        type_parameters = updated_node.type_parameters
+        type_params = type_parameters.params if type_parameters else ()
+
+        if self.target >= (3, 12) and all(p.default is None for p in type_params):
+            return updated_node
+
+        if not self._type_alias_alignment[name]:
+            module = "typing" if self.target >= (3, 12) else "typing_extensions"
+            return uncst.parse_assign(
+                name,
+                uncst.parse_call(
+                    self._require_import(module, "TypeAliasType"),
+                    uncst.parse_str(name),
+                    value,
+                    type_params=uncst.parse_tuple(p.param.name for p in type_params),
+                ),
+            )
+
+        type_alias_alias = self._require_import("typing", "TypeAlias")
+        return cst.AnnAssign(
+            cst.Name(name),
+            cst.Annotation(uncst.parse_name(type_alias_alias)),
+            value,
         )
-        return cst.FlattenSentinel([*lines, node])
 
     @override
     def visit_FunctionDef(self, /, node: cst.FunctionDef) -> None:
@@ -267,11 +312,12 @@ class StubTransformer(m.MatcherDecoratableTransformer):
 
         if not (tpars := updated_node.type_parameters):
             return updated_node
+        if self.target >= (3, 13):
+            return updated_node
         if self.target >= (3, 12) and not any(tpar.default for tpar in tpars.params):
             return updated_node
 
-        updated_node = _remove_tpars(updated_node)
-        return updated_node if self._stack else self._prepend_tvars(updated_node)
+        return updated_node.with_changes(type_parameters=None)
 
     @override
     def visit_ClassDef(self, /, node: cst.ClassDef) -> None:
@@ -285,20 +331,21 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         updated_node: cst.ClassDef,
     ) -> _Node_1N[cst.ClassDef, cst.BaseStatement]:
         stack = self._stack
+        name = stack.pop()
 
         if not (tpars := original_node.type_parameters):
             return updated_node
         if self.target >= (3, 12) and not any(tpar.default for tpar in tpars.params):
             return updated_node
 
+        qualname = ".".join((*stack, name))
+        assert qualname == updated_node.name.value or len(stack)
+
         base_args = updated_node.bases
         tpar_names = (tpar.param.name for tpar in tpars.params)
 
-        qualname = ".".join(stack)
-        assert qualname == updated_node.name.value or len(stack) > 1
-
         visitor = self.visitor
-        base_list = visitor.baseclasses[qualname]
+        base_list = visitor.class_bases[qualname]
         base_set = set(base_list)
 
         name_protocol = visitor.imported_from_typing_as("Protocol")
@@ -308,24 +355,21 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         new_bases = list(base_args)
         if base_set and name_protocol and name_protocol in base_set:
             assert name_protocol
-            expr_protocol = parse_name(name_protocol)
+            expr_protocol = uncst.parse_name(name_protocol)
 
             i = base_list.index(name_protocol)
             new_bases[i] = new_bases[i].with_changes(
-                value=parse_subscript(expr_protocol, *tpar_names),
+                value=uncst.parse_subscript(expr_protocol, *tpar_names),
             )
         else:
             # insert `Generic` after all other positional class args
             i = len(base_list)
-            expr_generic = parse_name(name_generic or "Generic")
-            new_bases.insert(i, cst.Arg(parse_subscript(expr_generic, *tpar_names)))
+            generic = uncst.parse_name(name_generic or "Generic")
+            new_bases.insert(i, cst.Arg(uncst.parse_subscript(generic, *tpar_names)))
 
-            visitor.desire_import("typing", "Generic", has_backport=True)
+            self._require_import("typing", "Generic")
 
-        updated_node = updated_node.with_changes(type_parameters=None, bases=new_bases)
-
-        stack.pop()
-        return self._prepend_tvars(updated_node) if not stack else updated_node
+        return updated_node.with_changes(type_parameters=None, bases=new_bases)
 
     @override
     def leave_Module(
@@ -334,8 +378,7 @@ class StubTransformer(m.MatcherDecoratableTransformer):
         original_node: cst.Module,
         updated_node: cst.Module,
     ) -> cst.Module:
-        if not (imports_add := self.visitor.imports_add):
-            return updated_node
+        imports_add = self.visitor.imports_add
 
         # all modules that were seen in the `from {module} import ...` statements
         from_modules = {
@@ -351,29 +394,56 @@ class StubTransformer(m.MatcherDecoratableTransformer):
             if module not in from_modules:
                 imports_from_add[module].append(name)
 
-        if not imports_from_add:
-            return updated_node
-
-        new_statements = [
+        new_import_stmts = [
             cst.SimpleStatementLine([
                 cst.ImportFrom(
-                    parse_name(module),
+                    uncst.parse_name(module),
                     [cst.ImportAlias(cst.Name(n)) for n in names],
                 ),
             ])
             for module, names in imports_from_add.items()
         ]
 
-        if not new_statements:
+        new_typevar_stmts: list[cst.SimpleStatementLine] = []
+        tpars: dict[str, uncst.TypeParameter] = {}
+        for (_, name), tpar in self.visitor.type_params.items():
+            if name in tpars:
+                if tpar == tpars[name]:
+                    continue
+
+                # TODO(jorenham): rename in this case
+                raise NotImplementedError(f"conflicting typevar definitions: {name!r}")
+
+            tpars[name] = tpar
+            new_typevar_stmts.append(cst.SimpleStatementLine([tpar.as_assign()]))
+
+        if not new_import_stmts and not new_typevar_stmts:
             return updated_node
 
-        i_insert = _new_typing_import_index(updated_node)
-        updated_body = [
-            *updated_node.body[:i_insert],
-            *new_statements,
-            *updated_node.body[i_insert:],
-        ]
-        return updated_node.with_changes(body=updated_body)
+        new_body = list(updated_node.body)
+        if new_import_stmts:
+            i0_import = _new_typing_import_index(updated_node)
+            new_body = [*new_body[:i0_import], *new_import_stmts, *new_body[i0_import:]]
+        else:
+            i0_import = 0
+
+        if new_typevar_stmts:
+            i0_typevars = _new_typevars_index(updated_node) or i0_import
+            assert i0_typevars >= i0_import, (i0_typevars, i0_import)
+            i0_typevars += len(new_import_stmts)
+
+            if i0_typevars:
+                new_typevar_stmts[0] = new_typevar_stmts[0].with_changes(
+                    leading_lines=[cst.EmptyLine()],  # type: ignore[no-any-expr]
+                )
+
+            new_body = [
+                *new_body[:i0_typevars],
+                *new_typevar_stmts,
+                *new_body[i0_typevars:],
+            ]
+
+        return updated_node.with_changes(body=new_body)
 
 
 def transform_module(original: cst.Module, /, target: PythonVersion) -> cst.Module:

@@ -1,10 +1,10 @@
+import dataclasses
 import functools
+from collections import deque
 from collections.abc import Iterable
-from dataclasses import dataclass
 from itertools import starmap
 from typing import (
     Literal,
-    Self,
     TypeAlias,
     TypedDict,
     Unpack,
@@ -28,6 +28,7 @@ from ._types import (
 
 __all__ = [
     "as_dict",
+    "get_access_order",
     "get_code",
     "get_name",
     "get_name_strict",
@@ -85,7 +86,7 @@ def get_name(
 ) -> str: ...
 @overload
 def get_name(node: cst.CSTNode, /) -> str | None: ...
-def get_name(node: str | cst.CSTNode, /) -> str | None:  # noqa: C901, PLR0911
+def get_name(node: str | cst.CSTNode, /) -> str | None:  # noqa: PLR0911
     if isinstance(node, str):
         return node
     if isinstance(node, cst.Name):
@@ -124,6 +125,45 @@ def get_name_strict(node: str | cst.CSTNode, /) -> str:
 
     assert not isinstance(node, str)
     raise NotImplementedError(f"not able to parse full name for: {dump(node)}")
+
+
+def get_access_order(
+    node: cst.CSTNode,
+    names: Iterable[str],
+    /,
+) -> dict[str, int | None]:
+    """
+    Recurses all names and returns a mapping of the names to the access order index,
+    or `None` if not accessed.
+
+    This is primarily used to determining whether the parameters of a type alias
+    are referenced in the order they are defined.
+
+    The returned dict keys are ordered according to the `names` argument.
+    """
+    if isinstance(names, str):
+        raise TypeError("names must be an iterable of strings, but not a string")
+
+    remaining = set(names)
+    access_order: dict[str, int | None] = dict.fromkeys(names, None)
+    index = 0
+
+    visited: set[cst.CSTNode] = set()
+    stack = deque([node])
+    while remaining and stack:
+        if (current := stack.pop()) in visited:
+            continue
+        visited.add(current)
+
+        if isinstance(current, cst.Name):
+            if (name := current.value) in remaining:
+                access_order[name] = index
+                remaining.remove(name)
+                index += 1
+        else:
+            stack.extend(reversed(current.children))
+
+    return access_order
 
 
 def as_dict(
@@ -167,7 +207,7 @@ def as_tuple(
     defaults: bool = False,
     syntax: bool = False,
     whitespace: bool = False,
-) -> tuple[str, tuple[object, ...]]:
+) -> tuple[type[cst.CSTNode], tuple[object, ...]]:
     kwargs = {
         "defaults": defaults,
         "syntax": syntax,
@@ -194,11 +234,11 @@ def as_tuple(
 
         out.append(value)
 
-    return type(node).__name__, tuple(out)
+    return type(node), tuple(out)
 
 
 def node_hash(node: cst.CSTNode, /, **kwargs: bool) -> int:
-    return hash((type(node).__name__, as_tuple(node, **kwargs)))
+    return hash(as_tuple(node, **kwargs))
 
 
 @functools.cache  # type: ignore[no-any-expr]
@@ -292,36 +332,56 @@ def parse_assign(
     return cst.Assign(list(map(cst.AssignTarget, targets)), value)
 
 
-# TODO: `@sealed`
-@dataclass(frozen=True, slots=True)
-class TypeParameter:
-    type: Literal["TypeVar", "TypeVarTuple", "ParamSpec"]
+__dataclass_kwds = {"frozen": True, "slots": True, "unsafe_hash": False, "eq": False}
 
+
+# TODO(jorenham): use `@sealed` here
+# https://github.com/jorenham/unpy/issues/42
+@dataclasses.dataclass(**__dataclass_kwds)
+class TypeParameter:
     name: str
     default: cst.BaseExpression | None = None
 
-    @property
-    def invariant(self, /) -> bool:
-        return True
+    @override
+    def __hash__(self, /) -> int:
+        return hash(self._as_tuple())
 
-    def required_imports(self, /, target: PythonVersion) -> frozenset[str]:
+    @override
+    def __eq__(self, other: object, /) -> bool:
+        if self is other:
+            return True
+        if type(self) is not type(other):
+            return False
+
+        return hash(self) == hash(other)
+
+    def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
         """The imports it would require to use this as typevar-like (no PEP 695)."""
         raise NotImplementedError
 
-    def as_assign(self, /, target: PythonVersion) -> cst.Assign:
+    def as_assign(self, /) -> cst.Assign:
         raise NotImplementedError
 
-    def as_subscript_element(self, /, target: PythonVersion) -> cst.SubscriptElement:  # noqa: ARG002
+    def as_subscript_element(self, /) -> cst.SubscriptElement:
         return cst.SubscriptElement(cst.Index(cst.Name(self.name)))
 
-    @classmethod
-    def from_cst(cls, node: cst.TypeParam, /) -> Self:
-        # TODO
-        raise NotImplementedError
+    def _as_tuple(self, /) -> tuple[object, ...]:
+        return tuple(  # type: ignore[no-any-expr]
+            as_tuple(value)
+            if isinstance(
+                value := cast(
+                    object,
+                    getattr(self, cast(dataclasses.Field[object], field).name),
+                ),
+                cst.CSTNode,
+            )
+            else value
+            for field in dataclasses.fields(self)  # type: ignore[no-any-expr]
+        )
 
 
 @final
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(**__dataclass_kwds)
 class TypeVar(TypeParameter):
     covariant: bool = False
     contravariant: bool = False
@@ -330,111 +390,98 @@ class TypeVar(TypeParameter):
     bound: cst.BaseExpression | None = None
     constraints: tuple[cst.BaseExpression, ...] = ()
 
-    alias_type: str = "TypeVar"
-
-    @property
-    @override
-    def invariant(self, /) -> bool:
-        return not (self.covariant or self.contravariant or self.infer_variance)
+    import_alias: str = "TypeVar"
 
     @override
-    def required_imports(self, /, target: PythonVersion) -> frozenset[str]:
+    def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
         module = (
             "typing_extensions"
             if (target < (3, 13) and self.default)
             or (target < (3, 12) and self.infer_variance)
             else "typing"
         )
-        return frozenset({f"{module}.TypeVar"})
+        return frozenset({(module, "TypeVar")})
 
     @override
-    def as_assign(self, /, target: PythonVersion) -> cst.Assign:
-        kwargs: dict[str, cst.BaseExpression] = {}
+    def as_assign(self, /) -> cst.Assign:
+        args = parse_str(self.name), *self.constraints
 
+        kwargs: dict[str, cst.BaseExpression] = {}
         for key in ("covariant", "contravariant", "infer_variance"):
             if value := cast(bool, getattr(self, key)):
                 kwargs[key] = parse_bool(value)
-
         if bound := self.bound:
             kwargs["bound"] = bound
         if default := self.default:
             kwargs["default"] = default
 
-        return parse_assign(
-            cst.Name(self.name),
-            parse_call(
-                parse_name(self.alias_type),
-                parse_str(self.name),
-                *self.constraints,
-                **kwargs,
-            ),
-        )
+        return parse_assign(self.name, parse_call(self.import_alias, *args, **kwargs))
 
 
 @final
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(**__dataclass_kwds)
 class TypeVarTuple(TypeParameter):
     default_star: bool = False
 
-    alias_type: str = "TypeVarTuple"
-    alias_unpack: str = "Unpack"
+    import_alias: str = "ParamSpec"
+    import_alias_unpack: str = "Unpack"
 
     @override
-    def required_imports(self, /, target: PythonVersion) -> frozenset[str]:
+    def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
         # `typing.TypeVarTuple` exists since 3.11, and supports `default=` since 3.13
 
         if target < (3, 11) or self.default_star:
             # unpacking a `default=` always requires `Unpack`
             module = "typing_extensions" if target < (3, 13) else "typing"
-            return frozenset({f"{module}.TypeVarTuple", f"{module}.Unpack"})
+            return frozenset({(module, "TypeVarTuple"), (module, "Unpack")})
 
         module = "typing_extensions" if target < (3, 13) and self.default else "typing"
-        return frozenset({f"{module}.TypeVarTuple"})
+        return frozenset({(module, "TypeVarTuple")})
 
     @override
-    def as_assign(self, /, target: PythonVersion) -> cst.Assign:
+    def as_assign(self, /) -> cst.Assign:
         kwargs: dict[str, cst.BaseExpression] = {}
         if self.default_star:
-            kwargs["default"] = self.as_unpack(target)
+            kwargs["default"] = self.as_unpack()
         elif default := self.default:
             kwargs["default"] = default
 
         return parse_assign(
             cst.Name(self.name),
-            parse_call(parse_name(self.alias_type), parse_str(self.name), **kwargs),
+            parse_call(self.import_alias, parse_str(self.name), **kwargs),
         )
 
     @override
-    def as_subscript_element(self, /, target: PythonVersion) -> cst.SubscriptElement:
-        if target < (3, 11):
-            index = cst.Index(self.as_unpack(target))
-        else:
+    def as_subscript_element(self, /, *, star: bool = False) -> cst.SubscriptElement:
+        if star:
             index = cst.Index(cst.Name(self.name), star="*")
+        else:
+            index = cst.Index(self.as_unpack())
         return cst.SubscriptElement(index)
 
-    def as_unpack(self, /, target: PythonVersion) -> cst.BaseExpression:
+    def as_unpack(self, /) -> cst.BaseExpression:
         return cst.Subscript(
-            parse_name(self.alias_unpack),
-            [super().as_subscript_element(target)],
+            parse_name(self.import_alias_unpack),
+            [super().as_subscript_element()],
         )
 
 
 @final
-@dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(**__dataclass_kwds)
 class ParamSpec(TypeParameter):
-    alias_type: str = "ParamSpec"
+    import_alias: str = "ParamSpec"
 
     @override
-    def required_imports(self, /, target: PythonVersion) -> frozenset[str]:
+    def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
         module = "typing_extensions" if target < (3, 13) and self.default else "typing"
-        return frozenset({f"{module}.{self.type}"})
+        return frozenset({(module, "ParamSpec")})
 
     @override
-    def as_assign(self, /, target: PythonVersion) -> cst.Assign:
+    def as_assign(self, /) -> cst.Assign:
         return parse_assign(
             cst.Name(self.name),
             parse_call(
-                parse_name(self.alias_type),
+                self.import_alias,
                 parse_str(self.name),
                 **({"default": default} if (default := self.default) else {}),
             ),
