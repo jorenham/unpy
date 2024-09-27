@@ -34,16 +34,14 @@ class StubVisitor(cst.CSTVisitor):
 
     # {import_fqn: alias_fqn, ...}
     imports: dict[str, str]
-    imports_del: set[str]
-    imports_add: set[str]
     _import_cache: dict[str, str | None]
 
     # {(generic_name, param_name), param), ...]
     type_params: dict[tuple[str, str], uncst.TypeParameter]
     type_params_grouped: dict[str, list[uncst.TypeParameter]]
 
-    # {alias_name: {param_name: access_index}}
-    type_alias_access_order: dict[str, dict[str, int | None]]
+    # {alias_name: [type_param, ...]}
+    type_aliases: dict[str, list[uncst.TypeParameter]]
 
     # {class_qualname: [class_qualname, ...]}
     class_bases: dict[str, list[str]]
@@ -56,16 +54,12 @@ class StubVisitor(cst.CSTVisitor):
         self.imports = {}
         self._import_cache = {}
 
-        # TODO(jorenham): move these to the `StubTransformer`
-        self.imports_del = set()
-        self.imports_add = set()
-
         # TODO(jorenham): refactor type-param stuff as metadata
         self.type_params = {}
         self.type_params_grouped = collections.defaultdict(list)
 
         # TODO(jorenham): refactor this as metadata
-        self.type_alias_access_order = {}
+        self.type_aliases = {}
 
         # TODO(jorenham): refactor this as metadata
         self.class_bases = {}
@@ -181,54 +175,6 @@ class StubVisitor(cst.CSTVisitor):
             self.imported_as("typing", name)
             or self.imported_as("typing_extensions", name)
         )  # fmt: skip
-
-    def prevent_import(self, module: str, name: str, /) -> None:
-        """
-        Add the import to `imports_del` if needed, or remove from `imports_add` if
-        previously desired.
-        """
-        fqn = f"{module}.{name}"
-
-        # only consider "direct" imports, i.e. `from {module} import {name}`,
-        # and ignore `from {module} import *` or `import {module}`
-        if self.imported_as(module, name):
-            self.imports_del.add(fqn)
-            assert fqn not in self.imports_add, fqn
-
-        self.imports_add.discard(fqn)
-
-    def desire_import(
-        self,
-        module: str,
-        name: str,
-        /,
-        *,
-        has_backport: bool = False,
-    ) -> str:
-        """Add the import to `imports_add` if needed."""
-        assert name.isidentifier(), name
-        fqn = f"{module}.{name}"
-
-        # check if already imported or desired to be imported
-        if alias := self.imported_as(module, name):
-            assert fqn not in self.imports_add
-            return alias
-        if fqn in self.imports_add:
-            return name
-
-        if has_backport:
-            # check if the typing_extensions backport is already desired or imported
-            fqn_tpx = f"typing_extensions.{name}"
-            assert fqn_tpx != fqn
-
-            if fqn_tpx in self.imports_add:
-                return name
-            if alias_tpx := self.imported_as("typing_extensions", name):
-                assert fqn_tpx not in self.imports_add
-                return alias_tpx
-
-        self.imports_add.add(fqn)
-        return name
 
     def _register_import(
         self,
@@ -366,15 +312,15 @@ class StubVisitor(cst.CSTVisitor):
         /,
         *,
         infer_variance: bool = False,
-    ) -> tuple[str, ...]:
+    ) -> list[uncst.TypeParameter]:
         type_params, type_params_grouped = self.type_params, self.type_params_grouped
-        names: list[str] = []
+        registered: list[uncst.TypeParameter] = []
         for p in params.params:
             type_param = self._build_type_param(p, infer_variance=infer_variance)
             type_params[generic_name, type_param.name] = type_param
             type_params_grouped[generic_name].append(type_param)
-            names.append(type_param.name)
-        return tuple(names)
+            registered.append(type_param)
+        return registered
 
     def __check_import_scope(self, /) -> None:
         if self._stack:
@@ -420,17 +366,15 @@ class StubVisitor(cst.CSTVisitor):
             raise NotImplementedError("only top-level type aliases are supported")
 
         name = node.name.value
-        assert name not in self.type_alias_access_order
+        assert name not in self.type_aliases
 
         if tpars := node.type_parameters:
-            tpar_names = self._register_type_params(name, tpars)
-            access_order = uncst.get_access_order(node, tpar_names)
-            self.type_alias_access_order[name] = access_order
-
-            # TODO(jorenham): report redundant type params (i.e. access order `None`)
-            # https://github.com/jorenham/unpy/issues/46
+            self.type_aliases[name] = self._register_type_params(name, tpars)
         else:
-            self.type_alias_access_order[name] = {}
+            self.type_aliases[name] = []
+
+        # TODO(jorenham): report redundant type params
+        # https://github.com/jorenham/unpy/issues/46
 
     @override
     def visit_FunctionDef(self, /, node: cst.FunctionDef) -> None:
