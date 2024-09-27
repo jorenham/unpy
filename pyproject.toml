@@ -72,7 +72,7 @@ dev-dependencies = [
     "codespell>=2.3.0,<3",
     "pre-commit>=3.8.0,<4",
     "pytest>=8.3.3,<9",
-    "ruff>=0.6.7,<1",
+    "ruff>=0.6.8,<1",
     "tox>=4.20.0,<5",
 ]
 
@@ -152,6 +152,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["ANN201", "PLC2701"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 16
 
 [tool.ruff.lint.isort]
 extra-standard-library = ["_typeshed", "typing_extensions"]
