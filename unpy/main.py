@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import difflib
+import enum
 import fileinput
 import sys
 from pathlib import Path
-from typing import Annotated, Final, TypeAlias
+from typing import Annotated, Final, TypeAlias, cast
 
 import typer
 
@@ -13,6 +14,17 @@ from ._types import PythonVersion
 from .transformers import transform_source
 
 __all__ = ("app",)
+
+
+class Target(enum.StrEnum):
+    PY310 = "3.10"
+    PY311 = "3.11"
+    PY312 = "3.12"
+    PY313 = "3.13"
+
+    @property
+    def version(self, /) -> PythonVersion:
+        return cast(PythonVersion, getattr(PythonVersion, self.name))
 
 
 def _version_callback(*, value: bool) -> None:
@@ -54,9 +66,8 @@ _OptionVersion: TypeAlias = Annotated[
         help="Show the version and exit",
     ),
 ]
-
 _OptionTarget: TypeAlias = Annotated[
-    PythonVersion,
+    Target,
     typer.Option(
         "--target",
         help="The minimum Python version that should be supported.",
@@ -71,7 +82,7 @@ _OptionDiff: TypeAlias = Annotated[
 ]
 
 _DEFAULT_OUTPUT: Final = Path("-")
-_DEFAULT_TARGET: Final = PythonVersion.PY311
+_DEFAULT_TARGET: Final = Target.PY311
 
 
 def _read_source(source: Path, /) -> str:
@@ -157,7 +168,7 @@ def build(
     assert not version
 
     source_str = _read_source(source)
-    output_str = transform_source(source_str, target=target)
+    output_str = transform_source(source_str, target=target.version)
 
     if diff:
         _echo_diff(str(source), source_str, str(output), output_str)
