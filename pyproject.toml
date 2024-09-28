@@ -167,12 +167,15 @@ ctypes = "ct"
 datetime = "dt"
 libcst = "cst"
 
+[tool.ruff.lint.pydocstyle]
+ignore-decorators = ["typing.overload", "typing.override"]
+
 [tool.ruff.lint.pylint]
 allow-magic-value-types = ["str", "int"]
-max-args = 10
-max-bool-expr = 20
+max-args = 8
+max-bool-expr = 16
 max-branches = 24
-max-locals = 30
+max-locals = 32
 max-statements = 100
 
 [tool.tox]
