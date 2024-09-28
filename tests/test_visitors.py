@@ -9,6 +9,9 @@ def _visit(source: str) -> StubVisitor:
     return visitor
 
 
+# imports
+
+
 def test_import_builtins() -> None:
     visitor = _visit("...")
     assert not visitor.global_names
@@ -87,6 +90,33 @@ def test_import_multi() -> None:
     assert visitor.imported_as("b2", "x") == "b2.x"
 
 
+def test_import_access() -> None:
+    visitor = _visit(
+        "\n".join([
+            "import warnings as w",
+            '@w.deprecated("RTFM")',
+            "def f() -> None: ...",
+        ]),
+    )
+    assert visitor.global_names == {"w", "f"}
+    assert visitor.imports == {"warnings": "w"}
+    assert visitor._import_alias == {"w": "warnings"}
+    assert visitor._import_access == {"w.deprecated": ("warnings", "deprecated")}
+
+
+def test_import_access_deep() -> None:
+    visitor = _visit(
+        "\n".join([
+            "import collections as cs",
+            "type CanBuffer = cs.abc.Buffer",
+        ]),
+    )
+    assert visitor.global_names == {"cs", "CanBuffer"}
+    assert visitor.imports == {"collections": "cs"}
+    assert visitor._import_alias == {"cs": "collections"}
+    assert visitor._import_access == {"cs.abc.Buffer": ("collections", "abc.Buffer")}
+
+
 def test_importfrom_single() -> None:
     visitor = _visit("from a import x")
     assert visitor.imports == {"a.x": "x"}
@@ -140,6 +170,10 @@ def test_importfrom_deep_star() -> None:
     assert visitor.imported_as("a", "b") is None
 
 
+# baseclass
+# TODO: more
+
+
 def test_baseclasses_single() -> None:
     visitor = _visit(
         "\n".join([
@@ -151,6 +185,6 @@ def test_baseclasses_single() -> None:
     assert visitor.imports == {"typing.Protocol": "Interface"}
     assert visitor.class_bases == {"C": ["Interface"]}
 
-# TODO: more baseclass tests
 
-# TODO: test typevar stuff
+# type params
+# TODO
