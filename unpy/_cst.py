@@ -56,7 +56,7 @@ _NAME_PARAMSPEC: Final = "ParamSpec"
 _NAME_UNPACK: Final = "Unpack"
 
 
-class _ModuleKwargs(TypedDict):
+class _ModuleKwargs(TypedDict, total=False):
     encoding: Encoding
     default_indent: Indent
     default_newline: LineEnding
