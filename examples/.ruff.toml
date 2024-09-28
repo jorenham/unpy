@@ -1,0 +1,4 @@
+extend = "../pyproject.toml"
+
+target-version = "py313"
+extend-ignore = ["E251", "PYI042", "N816"]
