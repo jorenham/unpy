@@ -91,6 +91,144 @@ Options:
   --help           Show this message and exit.
 ```
 
+## Examples
+
+Some simple examples of Python 3.13 stubs that are backported to Python 3.11.
+
+### Imports
+
+```console
+unpy examples/imports.pyi --diff
+```
+
+```diff
++++ -
+@@ -1,6 +1,4 @@
+- from types import CapsuleType
+- from typing import override
+- from warnings import deprecated
++ from typing_extensions import CapsuleType, deprecated, override
+
+  @deprecated("RTFM")
+  class Spam:
+      __pyx_capi__: dict[str, CapsuleType]
+      @override
+      def __hash__(self, /) -> int: ...
+
+```
+
+Note the alphabetical order of the generated imports.
+
+### Type Aliases
+
+```console
+unpy examples/type_aliases.pyi --diff
+```
+
+```diff
++++ -
+@@ -1,7 +1,15 @@
+  from collections.abc import Callable
++ from typing import ParamSpec, TypeAlias, TypeVar, TypeVarTuple
++ from typing_extensions import TypeAliasType
+
+- type Binary = bytes | bytearray | memoryview
+- type Vector[R: float] = tuple[R, ...]
+- type tciD[V, K] = dict[K, V]
+- type Things[*Ts] = tuple[*Ts]
+- type Callback[**Tss] = Callable[Tss, None]
++ R = TypeVar("R", bound=float)
++ V = TypeVar("V")
++ K = TypeVar("K")
++ Ts = ParamSpec("Ts")
++ Tss = ParamSpec("Tss")
++
++ Binary: TypeAlias = bytes | bytearray | memoryview
++ Vector: TypeAlias = tuple[R, ...]
++ tciD = TypeAliasType("tciD", dict[K, V], type_params=(V, K))
++ Things: TypeAlias = tuple[*Ts]
++ Callback: TypeAlias = Callable[Tss, None]
+
+```
+
+Note that `TypeAlias` cannot be used with `tciD` because the definition order of the
+type parameters (at the left-hand side) does not match the order in which they are
+accessed (at the right-hand side), and the backported `TypeAliasType` must be used
+instead.
+
+### Functions
+
+```console
+unpy examples/functions.pyi --diff
+```
+
+```diff
++++ -
+@@ -1,6 +1,11 @@
++ T = TypeVar("T")
++ S = TypeVar("S", str, bytes)
++ X = TypeVar("X")
++ Theta = ParamSpec("Theta")
++ Y = TypeVar("Y")
+  from collections.abc import Callable as Def
+- from typing import Concatenate as Concat
++ from typing import Concatenate as Concat, ParamSpec, TypeVar
+
+- def noop[T](x: T, /) -> T: ...
+- def concat[S: (str, bytes)](left: S, right: S) -> S: ...
+- def curry[X, **Theta, Y](f: Def[Concat[X, Theta], Y], /) -> Def[[X], Def[Theta, Y]]: ...
++ def noop(x: T, /) -> T: ...
++ def concat(left: S, right: S) -> S: ...
++ def curry(f: Def[Concat[X, Theta], Y], /) -> Def[[X], Def[Theta, Y]]: ...
+
+```
+
+### Generic classes and protocols
+
+```console
+unpy examples/generics.pyi --diff
+```
+
+```diff
++++ -
+@@ -1,17 +1,25 @@
+- from typing import Protocol, overload
++ from typing import Generic, Protocol, overload
++ from typing_extensions import TypeVar
++
++ T_contra = TypeVar("T_contra", contravariant=True)
++ T_co = TypeVar("T_co", covariant=True)
++ T = TypeVar("T", infer_variance=True)
++ D = TypeVar("D")
++ NameT = TypeVar("NameT", infer_variance=True, bound=str)
++ QualNameT = TypeVar("QualNameT", infer_variance=True, bound=str, default=NameT)
+
+  class Boring: ...
+
+- class CanGetItem[T_contra, T_co](Protocol):
++ class CanGetItem(Protocol[T_contra, T_co]):
+      def __getitem__(self, k: T_contra, /) -> T_co: ...
+
+- class Stack[T]:
++ class Stack(Generic[T]):
+      def push(self, value: T, /) -> None: ...
+      @overload
+      def pop(self, /) -> T: ...
+      @overload
+-     def pop[D](self, default: D, /) -> T | D: ...
++     def pop(self, default: D, /) -> T | D: ...
+
+- class Named[NameT: str, QualNameT: str = NameT]:
++ class Named(Generic[NameT, QualNameT]):
+      __name__: NameT
+      __qualname__: QualNameT
+
+```
+
+Note how `TypeVar` is (only) imported from `typing_extensions` here, which wasn't the
+case in the previous example. This is a consequence of the `infer_variance` parameter,
+which has been added in Python 3.12.
+
 ## Project goals
 
 Here's the alpha version of a prototype of a rough sketch of some initial ideas for the
@@ -100,7 +238,9 @@ potential goals of `unpy`:
     - [x] Get frustrated while [stubbing scipy](https://github.com/jorenham/scipy-stubs)
     - [ ] **[WIP]** Transpile Python 3.13 `.pyi` stubs to Python 3.10 stubs
     - [ ] Tooling for stub-only project integration
-    - [ ] Use this in `scipy-stubs`
+    - [ ] Use this in [`scipy-stubs`](https://github.com/jorenham/scipy-stubs)
+    - [ ] Gradually introduce this into [`numpy`](https://github.com/numpy/numpy)
+    - [ ]
 2. Towards the future
     - [ ] Beyond Python: $\text{Unpy} \supset \text{Python}$
     - [ ] Language support & tooling for *all* `.py` projects
@@ -111,9 +251,10 @@ potential goals of `unpy`:
 
 ### Tooling
 
+- Language support
+    - [x] `.pyi` => `.pyi`
+    - [ ] `.py` => `.py`
 - Conversion
-    - [x] `.pyi`
-    - [ ] `.py`
     - [x] stdin => stdout
     - [x] module => module
     - [ ] package => package
@@ -135,7 +276,7 @@ potential goals of `unpy`:
 - Performance
     - [ ] Limit conversion to changed files
 
-### Language features
+### Stub backporting
 
 - Python 3.13 => 3.12
     - [x] [PEP 742][PEP742]: `typing.TypeIs` => `typing_extensions.TypeIs`
@@ -144,33 +285,36 @@ potential goals of `unpy`:
     - [x] [PEP 696][PEP696]: Backport [PEP 695][PEP695] type signatures i.f.f. it
     includes a type parameter with default
     - [x] [PEP 696][PEP696]: `typing.NoDefault` => `typing_extensions.NoDefault`
-    - [x] `typing.get_protocol_members` => `typing_extensions.get_protocol_members`
-    - [x] `typing.is_protocol` => `typing_extensions.is_protocol`
-    - [x] `typing.is_protocol` => `typing_extensions.is_protocol`
+    - [ ] `asyncio.QueueShutDown` => `builtins.Exception`
+    - [ ] `pathlib.UnsupportedOperation` => `builtins.NotImplementedError`
+    - [ ] `queue.ShutDown` => `builtins.Exception`
+    - [ ] `re.PatternError` => `re.error`
     - [x] `types.CapsuleType` => `typing_extensions.CapsuleType`
-    - [ ] nested `typing.Final` and `typing.ClassVar`
+    - [ ] `typing.{ClassVar,Final}` => `typing_extensions.{ClassVar,Final}` when nested
+    (python/cpython#89547)
 - Python 3.12 => 3.11
     - [x] [PEP 698][PEP698]: `typing.override` => `typing_extensions.override`
+    - [x] [PEP 695][PEP695]: Backport `type _` aliases
     - [x] [PEP 695][PEP695]: Backport generic functions
-    - [x] [PEP 695][PEP695]: Backport generic classes
-    - [x] [PEP 695][PEP695]: Backport generic protocols
-    - [x] [PEP 695][PEP695]: `type {} = ...` => `{}: TypeAlias = ...` or
+    - [x] [PEP 695][PEP695]: Backport generic classes and protocols
     - [x] [PEP 695][PEP695]: `typing.TypeAliasType` => `typing_extensions.TypeAliasType`
     - [x] [PEP 688][PEP688]: `collections.abc.Buffer` => `typing_extensions.Buffer`
-    - [ ] [PEP 688][PEP688]: `inspect.BufferFlags` => `int`
-    - [ ] Backport subclasses of `path.Path`
+    - [ ] [PEP 688][PEP688]: `inspect.BufferFlags` => `int` (#57)
+    - [ ] `calendar.Day` => `1 | ... | 6` and `calendar.Month` => `1 | 2 | ... | 12`
+    - [ ] `csv.QUOTE_STRINGS` => `4` and `csv.QUOTE_NOTNULL` => `5`
+    - [ ] Backport subclasses of `pathlib.{PurePath,Path}` (currently disallowed)
 - Python 3.11 => 3.10
     - [x] [PEP 681][PEP681]: `typing.dataclass_transform` =>
     `typing_extensions.dataclass_transform`
-    - [ ] [PEP 680][PEP680]: `tomllib` => `tomli`
     - [x] [PEP 675][PEP675]: `typing.LiteralString` => `typing_extensions.LiteralString`
     - [x] [PEP 673][PEP673]: `typing.Self` => `typing_extensions.Self`
     - [x] [PEP 655][PEP655]: `typing.[Not]Required` => `typing_extensions.[Not]Required`
+    - [ ] [PEP 654][PEP654]: backport exception groups ([`exceptiongroup`][PEP654-IMPL])
     - [ ] [PEP 646][PEP646]: `*Ts` => `typing_extensions.Unpack[Ts]`
     - [ ] Remove `typing.Any` when used as base class
-    - [ ] Backport `ExceptionGroup` and `BaseExceptionGroup` when used as base class
     - [ ] Backport new `enum` members: `StrEnum`, `EnumCheck`, `ReprEnum`,
     `FlagBoundary`, `property`, `member`, `nonmember`, `global_enum`, `show_flag_values`
+    - [ ] Backport subclasses of `asyncio.TaskGroup`
 - Generated `TypeVar`s
     - [ ] Prefix extracted `TypeVar`s names with `_`
     - [x] De-duplicate extracted typevar-likes with same name if equivalent
@@ -188,21 +332,25 @@ potential goals of `unpy`:
     - [x] Reuse `import {module} as {alias}` if present, e.g. `import typing as tp`
     - [x] Support for `from typing[_extensions] import *` (not recommended)
     - [ ] Support for custom `typing` modules (like `[tool.ruff.lint.typing-modules]`)
-- Simplification and refactoring
-    - [ ] Transform `self` parameters to be positional-only
-    - [ ] Use `None` as the default return type
-    - [ ] De-duplicate and flatten unions and literals
-    - [ ] `type[S] | type[T]` => `type[S | T]`
-- Extended syntax
-    - [ ] Bare `Literal`s (as implemented in [basedmypy][BMP-BARE])
-    - [ ] Intersection types (as implemented in [basedmypy][BMP-ISEC])
-    - [ ] Type-mappings, which would remove the need for most overloads.
-    - [ ] Reusable method signature definitions
-    - [ ] Higher-kinded types (see python/typing#548)
-    - [ ] Inline callable types
-    - [ ] Annotating side-effects: exceptions, warnings, stdout, stderr, etc.
-    - [ ] Declarative operator overloading syntax
-    - [ ] Literal type unpacking
+
+### Simplification and refactoring
+
+- [ ] Transform `self` parameters to be positional-only
+- [ ] Use `None` as the default return type
+- [ ] De-duplicate and flatten unions and literals
+- [ ] `type[S] | type[T]` => `type[S | T]`
+
+### Beyond Python
+
+- [ ] Bare `Literal`s (as implemented in [basedmypy][BMP-BARE])
+- [ ] Type-mappings, which would remove the need for most overloads
+- [ ] Intersection types (as implemented in [basedmypy][BMP-ISEC])
+- [ ] Reusable method signature definitions
+- [ ] Higher-kinded types (see python/typing#548)
+- [ ] Inline callable types
+- [ ] Annotating side-effects: exceptions, warnings, stdout, stderr, etc.
+- [ ] Declarative operator overloading syntax
+- [ ] Literal type unpacking
 
 ### Analysis
 
@@ -211,10 +359,11 @@ potential goals of `unpy`:
 - [ ] ???
 
 [PEP646]: https://peps.python.org/pep-0646/
+[PEP654]: https://peps.python.org/pep-0654/
+[PEP654-IMPL]: https://github.com/agronholm/exceptiongroup
 [PEP655]: https://peps.python.org/pep-0655/
 [PEP673]: https://peps.python.org/pep-0673/
 [PEP675]: https://peps.python.org/pep-0675/
-[PEP680]: https://peps.python.org/pep-0680/
 [PEP681]: https://peps.python.org/pep-0681/
 [PEP688]: https://peps.python.org/pep-0688/
 [PEP695]: https://peps.python.org/pep-0695/

@@ -1,8 +1,11 @@
-from collections.abc import Buffer
-from typing import TypeAliasType
+# generated
+
+from types import CapsuleType
+from typing import override
 from warnings import deprecated
 
-Alias = TypeAliasType("Alias", object)
-
 @deprecated("RTFM")
-def dont_use_me(x: Buffer, /) -> bytes: ...
+class Spam:
+    __pyx_capi__: dict[str, CapsuleType]
+    @override
+    def __hash__(self, /) -> int: ...
