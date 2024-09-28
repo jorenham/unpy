@@ -1,6 +1,6 @@
 import collections
 import functools
-from typing import Final, override
+from typing import Final, Literal, override
 
 import libcst as cst
 from libcst.metadata import Scope, ScopeProvider
@@ -37,9 +37,14 @@ class StubVisitor(cst.CSTVisitor):
     _scope: Scope
     _stack: Final[collections.deque[str]]
 
-    # {import_fqn: alias_fqn, ...}
+    # {import_fqn: alias, ...}
     imports: dict[str, str]
+    # {import_fqn: alias, ...}
     _import_cache: dict[str, str | None]
+    # {alias: import_fqn, ...}
+    _import_alias: dict[str, str]
+    # {access_fqn: (import_fqn, qualname), ...}
+    _import_access: dict[str, tuple[str, str]]
 
     # {(generic_name, param_name), param), ...]
     type_params: dict[tuple[str, str], uncst.TypeParameter]
@@ -58,6 +63,8 @@ class StubVisitor(cst.CSTVisitor):
         # TODO(jorenham): support non-top-level imports with `collections.ChainMap`
         self.imports = {}
         self._import_cache = {}
+        self._import_alias = {}
+        self._import_access = {}
 
         # TODO(jorenham): refactor type-param stuff as metadata
         self.type_params = {}
@@ -176,10 +183,7 @@ class StubVisitor(cst.CSTVisitor):
     def imported_from_typing_as(self, name: str, /) -> str | None:
         assert name.isidentifier(), name
 
-        return (
-            self.imported_as(_MODULE_TP, name)
-            or self.imported_as(_MODULE_TPX, name)
-        )  # fmt: skip
+        return self.imported_as(_MODULE_TP, name) or self.imported_as(_MODULE_TPX, name)
 
     def _register_import(
         self,
@@ -193,6 +197,8 @@ class StubVisitor(cst.CSTVisitor):
 
         if self.imports.setdefault(fqn, alias) != alias:
             raise NotImplementedError(f"{fqn!r} cannot be import as another name")
+
+        self._import_alias[alias] = fqn
 
         return fqn
 
@@ -364,6 +370,29 @@ class StubVisitor(cst.CSTVisitor):
         else:
             for alias in node.names:
                 self._register_import_alias(alias, module=module)
+
+    @override
+    def visit_Attribute(self, /, node: cst.Attribute) -> Literal[False]:
+        if not (fqn := uncst.get_name(node)):
+            return False
+
+        if fqn in self._import_access:
+            return False
+
+        module, name = fqn.rsplit(".", 1)
+        if fqn_module := self._import_alias.get(module):
+            self._import_access[fqn] = fqn_module, name
+            return False
+
+        package, qualname = module, name
+        while "." in package:
+            package, submodule = package.rsplit(".", 1)
+            qualname = f"{submodule}.{qualname}"
+            if fqn_package := self._import_alias.get(package):
+                self._import_access[fqn] = fqn_package, qualname
+                break
+
+        return False
 
     @override
     def visit_TypeAlias(self, /, node: cst.TypeAlias) -> None:
