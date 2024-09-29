@@ -1,5 +1,14 @@
 import collections
+import sys
 from typing import Final, override
+
+if sys.version_info >= (3, 13):
+    from typing import TypeIs  # pyright: ignore[reportUnreachable]
+else:
+    try:
+        from typing_extensions import TypeIs
+    except ImportError:
+        from typing import TypeGuard as TypeIs  # type: ignore[assignment]
 
 import libcst as cst
 
@@ -355,6 +364,97 @@ class StubTransformer(cst.CSTTransformer):
 
         return updated_node
 
+    def _is_variadic_type(
+        self,
+        node: cst.BaseExpression,
+        /,
+    ) -> TypeIs[cst.Name | cst.Subscript]:
+        # check whether the node can be used in `typing.Unpack`
+
+        visitor = self.visitor
+
+        # check if the name refers to a variadic type parameter
+        if isinstance(node, cst.Name):
+            name = node.value
+            scope = list(self._stack_scope)
+            for i in range(len(scope), 0, -1):
+                fqn = ".".join(scope[:i])
+                for tpar in visitor.type_params_grouped[fqn]:
+                    if name != tpar.name:
+                        continue
+                    if not isinstance(tpar, uncst.TypeVarTuple):
+                        raise TypeError(f"cannot unpack a {type(tpar).__name__}")
+                    return True
+
+            # TODO(jorenham): also unpack existing (legacy) TypeVarTuple names
+            if visitor.imported_from_typing_as("TypeVarTuple"):
+                raise NotImplementedError("manual TypeVarTuple")
+
+            return False
+
+        # check if the subscripted value is a `builtins.tuple`
+        if isinstance(node, cst.Subscript) and (subname := uncst.get_name(node.value)):
+            return subname in {
+                visitor.imported_as("builtins", "tuple"),
+                visitor.imported_from_typing_as("Tuple"),
+            }
+
+        return False
+
+    def _unpack_variadic_type(self, node: cst.Name | cst.Subscript, /) -> cst.Subscript:
+        # wrap the variadic type in `Unpack[_]`
+        return cst.Subscript(
+            uncst.parse_name(self._require_import(_MODULE_TPX, "Unpack")),
+            [cst.SubscriptElement(cst.Index(node))],
+        )
+
+    @override
+    def leave_Index(
+        self,
+        /,
+        original_node: cst.Index,
+        updated_node: cst.Index,
+    ) -> cst.Index:
+        # desugar variadic type args as `*Ts` => `Unpack[Ts]` before Python 3.11
+        if (
+            self.target < (3, 11)
+            and updated_node.star
+            and self._is_variadic_type(value := updated_node.value)
+        ):
+            updated_node = updated_node.with_changes(
+                value=self._unpack_variadic_type(value),
+                star=None,
+            )
+
+        return updated_node
+
+    @override
+    def leave_Annotation(
+        self,
+        /,
+        original_node: cst.Annotation,
+        updated_node: cst.Annotation,
+    ) -> cst.Annotation:
+        # desugar variadic type args annotations like `*_: *Ts` as `*_: Unpack[Ts]`
+        # before Python 3.11
+
+        # TODO(jorenham): disallow `node.annotation <: cst.SimpleString`
+        # https://github.com/jorenham/unpy/issues/59
+
+        if (
+            self.target < (3, 11)
+            and isinstance(updated_node.annotation, cst.StarredElement)
+            and self._is_variadic_type(value := updated_node.annotation.value)
+        ):
+            updated_node = updated_node.with_changes(
+                annotation=self._unpack_variadic_type(value),
+            )
+        return updated_node
+
+    @override
+    def visit_TypeAlias(self, /, node: cst.TypeAlias) -> None:
+        self._stack_scope.append(node.name.value)
+
     @override
     def leave_TypeAlias(
         self,
@@ -363,6 +463,7 @@ class StubTransformer(cst.CSTTransformer):
         updated_node: cst.TypeAlias,
     ) -> cst.TypeAlias | cst.Assign | cst.AnnAssign:
         if self.target >= (3, 13):
+            self._stack_scope.pop()
             return updated_node
 
         name = updated_node.name.value
@@ -371,12 +472,12 @@ class StubTransformer(cst.CSTTransformer):
         type_parameters = updated_node.type_parameters
         type_params = type_parameters.params if type_parameters else ()
 
+        new_node: cst.TypeAlias | cst.Assign | cst.AnnAssign
         if self.target >= (3, 12) and all(p.default is None for p in type_params):
-            return updated_node
-
-        if not self._type_alias_alignment[name]:
+            new_node = updated_node
+        elif not self._type_alias_alignment[name]:
             module = _MODULE_TP if self.target >= (3, 12) else _MODULE_TPX
-            return uncst.parse_assign(
+            new_node = uncst.parse_assign(
                 name,
                 uncst.parse_call(
                     self._require_import(module, _NAME_ALIAS_PEP695),
@@ -385,13 +486,20 @@ class StubTransformer(cst.CSTTransformer):
                     type_params=uncst.parse_tuple(p.param.name for p in type_params),
                 ),
             )
+        else:
+            type_alias = self._require_import(
+                _MODULE_TP,
+                _NAME_ALIAS,
+                has_backport=True,
+            )
+            new_node = cst.AnnAssign(
+                cst.Name(name),
+                cst.Annotation(uncst.parse_name(type_alias)),
+                value,
+            )
 
-        type_alias = self._require_import(_MODULE_TP, _NAME_ALIAS, has_backport=True)
-        return cst.AnnAssign(
-            cst.Name(name),
-            cst.Annotation(uncst.parse_name(type_alias)),
-            value,
-        )
+        self._stack_scope.pop()
+        return new_node
 
     @override
     def visit_FunctionDef(self, /, node: cst.FunctionDef) -> None:
@@ -404,16 +512,19 @@ class StubTransformer(cst.CSTTransformer):
         original_node: cst.FunctionDef,
         updated_node: cst.FunctionDef,
     ) -> cst.FunctionDef | cst.FlattenSentinel[cst.BaseStatement]:
+        if (
+            (tpars := updated_node.type_parameters)
+            and self.target < (3, 13)
+            and (self.target < (3, 12) or any(tpar.default for tpar in tpars.params))
+        ):
+            updated_node = updated_node.with_changes(type_parameters=None)
+
+            if self.target < (3, 11):
+                # TODO(jorenham): unpack all `*Ts` param and return type annotations
+                ...
+
         self._stack_scope.pop()
-
-        if not (tpars := updated_node.type_parameters):
-            return updated_node
-        if self.target >= (3, 13):
-            return updated_node
-        if self.target >= (3, 12) and not any(tpar.default for tpar in tpars.params):
-            return updated_node
-
-        return updated_node.with_changes(type_parameters=None)
+        return updated_node
 
     @override
     def visit_ClassDef(self, /, node: cst.ClassDef) -> None:
@@ -437,9 +548,6 @@ class StubTransformer(cst.CSTTransformer):
         qualname = ".".join((*stack, name))
         assert qualname == updated_node.name.value or len(stack)
 
-        base_args = updated_node.bases
-        tpar_names = (tpar.param.name for tpar in tpars.params)
-
         visitor = self.visitor
         base_list = visitor.class_bases[qualname]
         base_set = set(base_list)
@@ -448,20 +556,25 @@ class StubTransformer(cst.CSTTransformer):
         name_generic = visitor.imported_from_typing_as(_NAME_GENERIC)
         assert name_generic not in base_set
 
-        new_bases = list(base_args)
+        subscript_elements = [
+            tpar.as_subscript_element(target=self.target)
+            for tpar in visitor.type_params_grouped[qualname]
+        ]
+
+        new_bases = list(updated_node.bases)
         if base_set and name_protocol and name_protocol in base_set:
             assert name_protocol
             expr_protocol = uncst.parse_name(name_protocol)
 
             i = base_list.index(name_protocol)
             new_bases[i] = new_bases[i].with_changes(
-                value=uncst.parse_subscript(expr_protocol, *tpar_names),
+                value=cst.Subscript(expr_protocol, subscript_elements),
             )
         else:
             # insert `Generic` after all other positional class args
             i = len(base_list)
             generic = uncst.parse_name(name_generic or _NAME_GENERIC)
-            new_bases.insert(i, cst.Arg(uncst.parse_subscript(generic, *tpar_names)))
+            new_bases.insert(i, cst.Arg(cst.Subscript(generic, subscript_elements)))
 
             self._require_import(_MODULE_TP, _NAME_GENERIC, has_backport=True)
 
