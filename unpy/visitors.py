@@ -26,7 +26,7 @@ _ILLEGAL_BASES: Final = (
 )
 
 
-class StubVisitor(cst.CSTVisitor):
+class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     """
     Collect all PEP-695 type-parameters & required imports in the module's functions,
     classes, and type-aliases.
@@ -38,15 +38,16 @@ class StubVisitor(cst.CSTVisitor):
 
     _stack_scope: Final[collections.deque[str]]
     _stack_attr: Final[collections.deque[cst.Attribute]]
+    _in_import: bool
 
     # {import_fqn: alias, ...}
     imports: dict[str, str]
     # {import_fqn: alias, ...}
     _import_cache: dict[str, str | None]
     # {alias: import_fqn, ...}
-    _import_alias: dict[str, str]
-    # {access_fqn: (import_fqn, qualname), ...}
-    _import_access: dict[str, tuple[str, str]]
+    imports_by_alias: dict[str, str]
+    # {access_fqn: (import_fqn, attr_fqn), ...}
+    _import_access: dict[str, tuple[str, str | None]]
 
     # {(generic_name, param_name), param), ...]
     type_params: dict[tuple[str, str], uncst.TypeParameter]
@@ -61,12 +62,13 @@ class StubVisitor(cst.CSTVisitor):
     def __init__(self, /) -> None:
         self._stack_scope = collections.deque()
         self._stack_attr = collections.deque()
+        self._in_import = False
 
         # TODO(jorenham): refactor this metadata
         # TODO(jorenham): support non-top-level imports with `collections.ChainMap`
         self.imports = {}
         self._import_cache = {}
-        self._import_alias = {}
+        self.imports_by_alias = {}
         self._import_access = {}
 
         # TODO(jorenham): refactor type-param stuff as metadata
@@ -203,7 +205,8 @@ class StubVisitor(cst.CSTVisitor):
         if self.imports.setdefault(fqn, alias) != alias:
             raise NotImplementedError(f"{fqn!r} cannot be import as another name")
 
-        self._import_alias[alias] = fqn
+        if name != "*":
+            self.imports_by_alias[alias] = fqn
 
         return fqn
 
@@ -222,7 +225,7 @@ class StubVisitor(cst.CSTVisitor):
     def _register_import_access(self, fqn: str, /) -> str | None:
         if fqn in (import_access := self._import_access):
             return import_access[fqn][0]
-        if fqn in (import_alias := self._import_alias):
+        if fqn in (import_alias := self.imports_by_alias):
             return import_alias[fqn]
 
         module, name = fqn, ""
@@ -354,9 +357,16 @@ class StubVisitor(cst.CSTVisitor):
             registered.append(type_param)
         return registered
 
-    def __check_import_scope(self, /) -> None:
+    def __before_import(self, /) -> None:
         if self._stack_scope:
             raise NotImplementedError("only top-level import statements are supported")
+
+        assert not self._in_import
+        self._in_import = True
+
+    def __after_import(self, /) -> None:
+        assert self._in_import
+        self._in_import = False
 
     @override
     def visit_Module(self, /, node: cst.Module) -> None:
@@ -366,7 +376,7 @@ class StubVisitor(cst.CSTVisitor):
 
     @override
     def visit_Import(self, /, node: cst.Import) -> None:
-        self.__check_import_scope()
+        self.__before_import()
 
         for alias in node.names:
             fqn = self._register_import_alias(alias)
@@ -377,8 +387,12 @@ class StubVisitor(cst.CSTVisitor):
                     fqn = self._register_import(fqn.rsplit(".", 1)[0])
 
     @override
+    def leave_Import(self, /, original_node: cst.Import) -> None:
+        self.__after_import()
+
+    @override
     def visit_ImportFrom(self, /, node: cst.ImportFrom) -> None:
-        self.__check_import_scope()
+        self.__before_import()
 
         module = "." * len(node.relative)
         if node.module:
@@ -393,6 +407,19 @@ class StubVisitor(cst.CSTVisitor):
                 self._register_import_alias(alias, module=module)
 
     @override
+    def leave_ImportFrom(self, /, original_node: cst.ImportFrom) -> None:
+        self.__after_import()
+
+    @override
+    def visit_Name(self, /, node: cst.Name) -> None:
+        if self._in_import or self._stack_attr:
+            return
+        if (name := node.value) in (access := self._import_access):
+            return
+        if module := self.imports_by_alias.get(name):
+            access[name] = module, None
+
+    @override
     def visit_Attribute(self, /, node: cst.Attribute) -> None:
         if not self._stack_attr and isinstance(node.value, cst.Name | cst.Attribute):
             self._register_import_access(uncst.get_name_strict(node))
@@ -403,6 +430,37 @@ class StubVisitor(cst.CSTVisitor):
     def leave_Attribute(self, /, original_node: cst.Attribute) -> None:
         node = self._stack_attr.pop()
         assert node is original_node
+
+    def __check_assign_imported(self, node: cst.Assign | cst.AnnAssign, /) -> None:
+        if not isinstance(node.value, cst.Name | cst.Attribute):
+            return
+        if (name := uncst.get_name_strict(node.value)) not in self.imports_by_alias:
+            return
+
+        # TODO(jorenham): support multiple import aliases
+        # TODO(jorenham): support creating an import alias by assignment
+        fqn = self.imports_by_alias[name]
+        raise NotImplementedError(f"multiple import aliases for {fqn!r}")
+
+    @override
+    def visit_Assign(self, node: cst.Assign) -> None:
+        self.__check_assign_imported(node)
+
+    @override
+    def visit_AnnAssign(self, node: cst.AnnAssign) -> None:
+        self.__check_assign_imported(node)
+
+    @override
+    def visit_AssignTarget(self, node: cst.AssignTarget) -> None:
+        assert not self._stack_attr
+
+        # detect import shadowing
+        if (
+            isinstance(node.target, cst.Name)
+            and (name := node.target.value) in self.imports_by_alias
+        ):
+            # TODO(jorenham): either allow this, or improve the reported error
+            raise NotImplementedError(f"imported name {name!r} cannot be assigned to")
 
     @override
     def visit_TypeAlias(self, /, node: cst.TypeAlias) -> None:
