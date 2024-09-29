@@ -2,7 +2,6 @@ import collections
 from typing import Final, override
 
 import libcst as cst
-import libcst.matchers as m
 
 import unpy._cst as uncst
 
@@ -94,7 +93,7 @@ def _new_typevars_index(module_node: cst.Module) -> int:
     return i_insert
 
 
-class StubTransformer(m.MatcherDecoratableTransformer):
+class StubTransformer(cst.CSTTransformer):
     visitor: Final[StubVisitor]
     target: Final[PythonVersion]
 
