@@ -11,9 +11,6 @@ from .visitors import StubVisitor
 
 __all__ = ("StubTransformer",)
 
-type _Node_01[N: cst.CSTNode] = N | cst.RemovalSentinel
-type _Node_1N[N: cst.CSTNode, NN: cst.CSTNode] = N | cst.FlattenSentinel[N | NN]
-
 
 _MODULE_TP: Final = "typing"
 _MODULE_TPX: Final = "typing_extensions"
@@ -249,11 +246,8 @@ class StubTransformer(cst.CSTTransformer):
         class_type_params = visitor.type_params_grouped
 
         alias_protocol = visitor.imported_from_typing_as(_NAME_PROTOCOL)
-
         for name, bases in class_bases.items():
-            if class_type_params.get(name) and (
-                not alias_protocol or alias_protocol not in bases
-            ):
+            if class_type_params.get(name) and alias_protocol not in bases:
                 self._require_import(_MODULE_TP, _NAME_GENERIC, has_backport=True)
                 break
 
@@ -263,7 +257,7 @@ class StubTransformer(cst.CSTTransformer):
         /,
         original_node: cst.ImportFrom,
         updated_node: cst.ImportFrom,
-    ) -> _Node_01[cst.ImportFrom]:
+    ) -> cst.ImportFrom | cst.RemovalSentinel:
         if updated_node.relative or isinstance(updated_node.names, cst.ImportStar):
             return updated_node
         assert updated_node.module
@@ -358,7 +352,7 @@ class StubTransformer(cst.CSTTransformer):
         /,
         original_node: cst.ClassDef,
         updated_node: cst.ClassDef,
-    ) -> _Node_1N[cst.ClassDef, cst.BaseStatement]:
+    ) -> cst.ClassDef | cst.FlattenSentinel[cst.ClassDef | cst.BaseStatement]:
         stack = self._stack
         name = stack.pop()
 
