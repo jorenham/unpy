@@ -320,25 +320,18 @@ potential goals of `unpy`:
     - [x] De-duplicate extracted typevar-likes with same name if equivalent
     - [ ] Rename extracted typevar-likes with same name if not equivalent
     - [ ] Infer variance of `typing_extensions.TypeVar(..., infer_variance=True)` whose
-      name does not end with `_contra` (`contravariant=True`) or `_co`
-      (`covariant=True`)
-    - [x] Convert `default=Any` to `default={bound}` or `default=object`
-    - [x] Remove `bound=Any` and `bound=object`
-- Imports
-    - [x] Reuse existing `from typing[_extensions] import {name}` imports instead of
-    adding new ones
-    - [x] Reuse `from {module} import {name} as {alias}` import aliases if present, e.g.
-    `from typing import TypeVar as TypeParam`
-    - [x] Reuse `import {module} as {alias}` if present, e.g. `import typing as tp`
-    - [x] Support for `from typing[_extensions] import *` (not recommended)
-    - [ ] Support for custom `typing` modules (like `[tool.ruff.lint.typing-modules]`)
+      name does not end with `{}_contra` (contravariant) or `{}_co` (covariant)
 
 ### Simplification and refactoring
 
-- [ ] Transform `self` parameters to be positional-only
-- [ ] Use `None` as the default return type
-- [ ] De-duplicate and flatten unions and literals
-- [ ] `type[S] | type[T]` => `type[S | T]`
+- Type parameters
+    - [x] Convert `default=Any` with `bound=T` to `default=T`
+    - [x] Remove `bound=Any` and `bound=object`
+- Annotations
+    - [ ] Transform `self` parameters to be positional-only
+    - [ ] Use `None` as the default return type
+    - [ ] De-duplicate and flatten unions and literals
+    - [ ] `type[S] | type[T]` => `type[S | T]`
 
 ### Beyond Python
 
