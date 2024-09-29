@@ -1,5 +1,3 @@
-# generated
-
 from types import CapsuleType
 from typing import override
 from warnings import deprecated

@@ -107,13 +107,13 @@ reportUnusedCallResult = false
 
 executionEnvironments = [
     {root = "examples", pythonVersion = "3.13"},
-    {root = "tests", reportPrivateUsage = false},
+    {root = "tests", pythonVersion = "3.12", reportPrivateUsage = false},
     {root = "unpy", pythonVersion = "3.12"}
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["unpy", "tests"]
-addopts = ["-rav", "--strict-config", "--strict-markers", "--doctest-modules"]
+addopts = ["-ra", "--strict-config", "--strict-markers", "--doctest-modules"]
 doctest_optionflags = ["NORMALIZE_WHITESPACE", "ELLIPSIS"]
 filterwarnings = ["error"]
 log_cli_level = "INFO"
@@ -151,8 +151,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"examples/*" = ["E251", "PYI042", "N816"]
-"tests/*" = ["ANN201", "PLC2701"]
+"tests/*" = ["ANN201", "PLC2701", "SLF001"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 16
@@ -168,12 +167,15 @@ ctypes = "ct"
 datetime = "dt"
 libcst = "cst"
 
+[tool.ruff.lint.pydocstyle]
+ignore-decorators = ["typing.overload", "typing.override"]
+
 [tool.ruff.lint.pylint]
 allow-magic-value-types = ["str", "int"]
-max-args = 10
-max-bool-expr = 20
+max-args = 8
+max-bool-expr = 16
 max-branches = 24
-max-locals = 30
+max-locals = 32
 max-statements = 100
 
 [tool.tox]
