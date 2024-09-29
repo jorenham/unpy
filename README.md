@@ -83,22 +83,23 @@ Arguments:
   [OUTPUT]  Path to the output .pyi file. Defaults to stdout.
 
 Options:
-  --version        Show the version and exit
-  --diff           Show the changes between the input and output in unified
-                   diff format
-  --target [3.11]  The minimum Python version that should be supported.
-                   [default: 3.11]
-  --help           Show this message and exit.
+  --version                       Show the version and exit
+  --diff                          Show the changes between the input and
+                                  output in unified diff format
+  --target [3.10|3.11|3.12|3.13]  The minimum Python version that should be
+                                  supported.  [default: 3.11]
+  --help                          Show this message and exit.
+
 ```
 
 ## Examples
 
-Some simple examples of Python 3.13 stubs that are backported to Python 3.11.
+Some simple examples of Python 3.13 stubs that are backported to Python 3.10.
 
 ### Imports
 
 ```console
-unpy examples/imports.pyi --diff
+$ unpy --target 3.10 --diff examples/imports.pyi
 ```
 
 ```diff
@@ -114,7 +115,6 @@ unpy examples/imports.pyi --diff
       __pyx_capi__: dict[str, CapsuleType]
       @override
       def __hash__(self, /) -> int: ...
-
 ```
 
 Note the alphabetical order of the generated imports.
@@ -122,15 +122,15 @@ Note the alphabetical order of the generated imports.
 ### Type Aliases
 
 ```console
-unpy examples/type_aliases.pyi --diff
+$ unpy --target 3.10 --diff examples/type_aliases.pyi
 ```
 
 ```diff
 +++ -
 @@ -1,7 +1,15 @@
   from collections.abc import Callable
-+ from typing import ParamSpec, TypeAlias, TypeVar, TypeVarTuple
-+ from typing_extensions import TypeAliasType
++ from typing import ParamSpec, TypeAlias, TypeVar
++ from typing_extensions import TypeAliasType, TypeVarTuple, Unpack
 
 - type Binary = bytes | bytearray | memoryview
 - type Vector[R: float] = tuple[R, ...]
@@ -140,15 +140,14 @@ unpy examples/type_aliases.pyi --diff
 + R = TypeVar("R", bound=float)
 + V = TypeVar("V")
 + K = TypeVar("K")
-+ Ts = ParamSpec("Ts")
++ Ts = TypeVarTuple("Ts")
 + Tss = ParamSpec("Tss")
 +
 + Binary: TypeAlias = bytes | bytearray | memoryview
 + Vector: TypeAlias = tuple[R, ...]
 + tciD = TypeAliasType("tciD", dict[K, V], type_params=(V, K))
-+ Things: TypeAlias = tuple[*Ts]
++ Things: TypeAlias = tuple[Unpack[Ts]]
 + Callback: TypeAlias = Callable[Tss, None]
-
 ```
 
 Note that `TypeAlias` cannot be used with `tciD` because the definition order of the
@@ -159,7 +158,7 @@ instead.
 ### Functions
 
 ```console
-unpy examples/functions.pyi --diff
+$ unpy --target 3.10 --diff examples/functions.pyi
 ```
 
 ```diff
@@ -180,13 +179,12 @@ unpy examples/functions.pyi --diff
 + def noop(x: T, /) -> T: ...
 + def concat(left: S, right: S) -> S: ...
 + def curry(f: Def[Concat[X, Theta], Y], /) -> Def[[X], Def[Theta, Y]]: ...
-
 ```
 
 ### Generic classes and protocols
 
 ```console
-unpy examples/generics.pyi --diff
+$ unpy --target 3.10 --diff examples/generics.pyi
 ```
 
 ```diff
@@ -210,7 +208,7 @@ unpy examples/generics.pyi --diff
       def __getitem__(self, k: T_contra, /) -> T_co: ...
 
 - class Stack[T]:
-+ class Stack(Generic[T]):
++ class Stack(Generic[T, D]):
       def push(self, value: T, /) -> None: ...
       @overload
       def pop(self, /) -> T: ...
@@ -222,7 +220,6 @@ unpy examples/generics.pyi --diff
 + class Named(Generic[NameT, QualNameT]):
       __name__: NameT
       __qualname__: QualNameT
-
 ```
 
 Note how `TypeVar` is (only) imported from `typing_extensions` here, which wasn't the
@@ -310,15 +307,15 @@ potential goals of `unpy`:
     - [x] [PEP 673][PEP673]: `typing.Self` => `typing_extensions.Self`
     - [x] [PEP 655][PEP655]: `typing.[Not]Required` => `typing_extensions.[Not]Required`
     - [ ] [PEP 654][PEP654]: backport exception groups ([`exceptiongroup`][PEP654-IMPL])
-    - [ ] [PEP 646][PEP646]: `*Ts` => `typing_extensions.Unpack[Ts]`
-    - [ ] Remove `typing.Any` when used as base class
+    - [x] [PEP 646][PEP646]: `*Ts` => `typing_extensions.Unpack[Ts]`
+    - [ ] Backport `typing.Any` when used as base class (not recommended)
+    - [ ] Backport `asyncio.TaskGroup` when used as base class
     - [ ] Backport new `enum` members: `StrEnum`, `EnumCheck`, `ReprEnum`,
     `FlagBoundary`, `property`, `member`, `nonmember`, `global_enum`, `show_flag_values`
-    - [ ] Backport subclasses of `asyncio.TaskGroup`
 - Generated `TypeVar`s
     - [ ] Prefix extracted `TypeVar`s names with `_`
     - [x] De-duplicate extracted typevar-likes with same name if equivalent
-    - [ ] Rename extracted typevar-likes with same name if not equivalent
+    - [ ] Rename extracted typevar-likes with same name if not equivalent )
     - [ ] Infer variance of `typing_extensions.TypeVar(..., infer_variance=True)` whose
       name does not end with `{}_contra` (contravariant) or `{}_co` (covariant)
 

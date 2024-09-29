@@ -105,10 +105,6 @@ def get_name(node: str | cst.CSTNode, /) -> str | None:  # noqa: PLR0911
                 return f"{b1.value}.{b0.attr.value}.{attr}"
             return f"{get_name(b1)}.{b0.attr.value}.{attr}"
         return f"{get_name(b0)}.{attr}"
-    # if isinstance(node, cst.Subscript):
-    #     return get_name(node.value)
-    # if isinstance(node, cst.Call):
-    #     return get_name(node.func)
     if isinstance(node, cst.Decorator):
         return get_name(node.decorator)
     if isinstance(node, cst.TypeParam):
@@ -311,18 +307,6 @@ def parse_call(
     )
 
 
-def parse_subscript(
-    base: cst.BaseExpression | str,
-    /,
-    *ixs: cst.BaseSlice | cst.BaseExpression,
-) -> cst.Subscript:
-    elems = [
-        cst.SubscriptElement(ix if isinstance(ix, cst.BaseSlice) else cst.Index(ix))
-        for ix in ixs
-    ]
-    return cst.Subscript(_name_or_expr(base), elems)
-
-
 def parse_assign(
     target: _AssignTarget | tuple[_AssignTarget, ...],
     value: cst.BaseExpression,
@@ -365,7 +349,7 @@ class TypeParameter:
     def as_assign(self, /) -> cst.Assign:
         raise NotImplementedError
 
-    def as_subscript_element(self, /) -> cst.SubscriptElement:
+    def as_subscript_element(self, /, target: PythonVersion) -> cst.SubscriptElement:  # noqa: ARG002
         return cst.SubscriptElement(cst.Index(cst.Name(self.name)))
 
     def _as_tuple(self, /) -> tuple[object, ...]:
@@ -426,7 +410,7 @@ class TypeVar(TypeParameter):
 class TypeVarTuple(TypeParameter):
     default_star: bool = False
 
-    import_alias: str = _NAME_PARAMSPEC
+    import_alias: str = _NAME_TVAR_TUPLE
     import_alias_unpack: str = _NAME_UNPACK
 
     @override
@@ -435,8 +419,11 @@ class TypeVarTuple(TypeParameter):
 
         if target < (3, 11) or self.default_star:
             # unpacking a `default=` always requires `Unpack`
-            module = _MODULE_TPX if target < (3, 13) else _MODULE_TP
-            return frozenset({(module, _NAME_TVAR_TUPLE), (module, _NAME_UNPACK)})
+            module = _MODULE_TPX if target < (3, 11) else _MODULE_TP
+            return frozenset({
+                (module, _NAME_TVAR_TUPLE),
+                (module, _NAME_UNPACK),
+            })
 
         module = _MODULE_TPX if target < (3, 13) and self.default else _MODULE_TP
         return frozenset({(module, _NAME_TVAR_TUPLE)})
@@ -445,7 +432,11 @@ class TypeVarTuple(TypeParameter):
     def as_assign(self, /) -> cst.Assign:
         kwargs: dict[str, cst.BaseExpression] = {}
         if self.default_star:
-            kwargs["default"] = self.as_unpack()
+            assert self.default
+            kwargs["default"] = cst.Subscript(
+                parse_name(self.import_alias_unpack),
+                [cst.SubscriptElement(cst.Index(self.default))],
+            )
         elif default := self.default:
             kwargs["default"] = default
 
@@ -455,8 +446,8 @@ class TypeVarTuple(TypeParameter):
         )
 
     @override
-    def as_subscript_element(self, /, *, star: bool = False) -> cst.SubscriptElement:
-        if star:
+    def as_subscript_element(self, /, target: PythonVersion) -> cst.SubscriptElement:
+        if target >= (3, 11):
             index = cst.Index(cst.Name(self.name), star="*")
         else:
             index = cst.Index(self.as_unpack())
@@ -465,7 +456,7 @@ class TypeVarTuple(TypeParameter):
     def as_unpack(self, /) -> cst.BaseExpression:
         return cst.Subscript(
             parse_name(self.import_alias_unpack),
-            [super().as_subscript_element()],
+            [TypeParameter.as_subscript_element(self, target=PythonVersion.PY310)],
         )
 
 

@@ -1,6 +1,7 @@
 import textwrap
 
 import pytest
+from unpy._types import PythonVersion
 from unpy.transformers import transform_source
 
 
@@ -202,6 +203,54 @@ def test_generic_function_default():
     assert pyi_out == pyi_expect
 
 
+def test_generic_function_variadic_py311():
+    pyi_in = _src("def f[*Ts](*args: *Ts) -> tuple[*Ts]: ...")
+    pyi_expect = _src("""
+    from typing import TypeVarTuple
+
+    Ts = TypeVarTuple("Ts")
+    def f(*args: *Ts) -> tuple[*Ts]: ...
+    """)
+    pyi_out = transform_source(pyi_in, target=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_function_variadic_py310():
+    pyi_in = _src("def f[*Ts](*args: *Ts) -> tuple[*Ts]: ...")
+    pyi_expect = _src("""
+    from typing_extensions import TypeVarTuple, Unpack
+
+    Ts = TypeVarTuple("Ts")
+    def f(*args: Unpack[Ts]) -> tuple[Unpack[Ts]]: ...
+    """)
+    pyi_out = transform_source(pyi_in, target=PythonVersion.PY310)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_function_variadic_default_py311():
+    pyi_in = _src("def f[*Ts = *tuple[()]](*args: *Ts) -> tuple[*Ts]: ...")
+    pyi_expect = _src("""
+    from typing import TypeVarTuple, Unpack
+
+    Ts = TypeVarTuple("Ts", default=Unpack[tuple[()]])
+    def f(*args: *Ts) -> tuple[*Ts]: ...
+    """)
+    pyi_out = transform_source(pyi_in, target=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_function_variadic_default_py310():
+    pyi_in = _src("def f[*Ts = *tuple[()]](*args: *Ts) -> tuple[*Ts]: ...")
+    pyi_expect = _src("""
+    from typing_extensions import TypeVarTuple, Unpack
+
+    Ts = TypeVarTuple("Ts", default=Unpack[tuple[()]])
+    def f(*args: Unpack[Ts]) -> tuple[Unpack[Ts]]: ...
+    """)
+    pyi_out = transform_source(pyi_in, target=PythonVersion.PY310)
+    assert pyi_out == pyi_expect
+
+
 def test_generic_function_default_any():
     pyi_in = _src("""
     from typing import Any
@@ -290,6 +339,42 @@ def test_generic_protocol():
     assert pyi_out == pyi_expect
 
 
+def test_generic_variadic_default_py311():
+    pyi_in = _src("""
+    class A[T, *Ts = *tuple[()]]:
+        a: tuple[T, *Ts]
+    """)
+    pyi_expect = _src("""
+    from typing import Generic, TypeVarTuple, Unpack
+    from typing_extensions import TypeVar
+
+    T = TypeVar("T", infer_variance=True)
+    Ts = TypeVarTuple("Ts", default=Unpack[tuple[()]])
+    class A(Generic[T, *Ts]):
+        a: tuple[T, *Ts]
+    """)
+    pyi_out = transform_source(pyi_in, target=PythonVersion.PY311)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_variadic_default_py310():
+    pyi_in = _src("""
+    class A[T, *Ts = *tuple[()]]:
+        a: tuple[T, *Ts]
+    """)
+    pyi_expect = _src("""
+    from typing import Generic
+    from typing_extensions import TypeVar, TypeVarTuple, Unpack
+
+    T = TypeVar("T", infer_variance=True)
+    Ts = TypeVarTuple("Ts", default=Unpack[tuple[()]])
+    class A(Generic[T, Unpack[Ts]]):
+        a: tuple[T, Unpack[Ts]]
+    """)
+    pyi_out = transform_source(pyi_in, target=PythonVersion.PY310)
+    assert pyi_out == pyi_expect
+
+
 def test_import_override():
     pyi_in = _src("""
     from typing import Protocol, override
@@ -358,9 +443,6 @@ def test_import_collection_abs_buffer():
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
-
-
-# TODO: move the following tests to a `py313 => py312` test suite
 
 
 def test_import_type_is():
