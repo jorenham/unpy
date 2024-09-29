@@ -96,7 +96,7 @@ def test_import_access() -> None:
     assert visitor.global_names == {"w", "f"}
     assert visitor.imports == {"warnings": "w"}
     assert visitor.imports_by_alias == {"w": "warnings"}
-    assert visitor._import_access == {"w.deprecated": ("warnings", "deprecated")}
+    assert visitor.imports_by_ref == {"w.deprecated": ("warnings", "deprecated")}
 
 
 def test_import_access_deep() -> None:
@@ -107,7 +107,7 @@ def test_import_access_deep() -> None:
     assert visitor.global_names == {"cs", "CanBuffer"}
     assert visitor.imports == {"collections": "cs"}
     assert visitor.imports_by_alias == {"cs": "collections"}
-    assert visitor._import_access == {"cs.abc.Buffer": ("collections", "abc.Buffer")}
+    assert visitor.imports_by_ref == {"cs.abc.Buffer": ("collections", "abc.Buffer")}
 
 
 def test_import_multiple_alias() -> None:
@@ -138,7 +138,7 @@ def test_importfrom_single() -> None:
     visitor = _visit("from a import x")
     assert visitor.imports == {"a.x": "x"}
     assert visitor.imports_by_alias == {"x": "a.x"}
-    assert visitor._import_access == {}
+    assert visitor.imports_by_ref == {}
     assert visitor.imported_as("a", "x") == "x"
 
 
@@ -146,7 +146,7 @@ def test_importfrom_single_deep() -> None:
     visitor = _visit("from a.b.c import x")
     assert visitor.imports == {"a.b.c.x": "x"}
     assert visitor.imports_by_alias == {"x": "a.b.c.x"}
-    assert visitor._import_access == {}
+    assert visitor.imports_by_ref == {}
     assert visitor.imported_as("a.b.c", "x") == "x"
 
 
@@ -154,7 +154,7 @@ def test_importfrom_single_package() -> None:
     visitor = _visit("from a import b")
     assert visitor.imports == {"a.b": "b"}
     assert visitor.imports_by_alias == {"b": "a.b"}
-    assert visitor._import_access == {}
+    assert visitor.imports_by_ref == {}
     assert visitor.imported_as("a.b", "c") == "b.c"
     assert visitor.imported_as("a.b.c", "x") == "b.c.x"
 
@@ -163,7 +163,7 @@ def test_importfrom_single_as() -> None:
     visitor = _visit("from a import x as _x")
     assert visitor.imports == {"a.x": "_x"}
     assert visitor.imports_by_alias == {"_x": "a.x"}
-    assert visitor._import_access == {}
+    assert visitor.imports_by_ref == {}
     assert visitor.imported_as("a", "x") == "_x"
     assert visitor.imported_as("a", "_x") is None
     assert visitor.imported_as("a", "y") is None
@@ -174,7 +174,7 @@ def test_importfrom_single_deep_as() -> None:
     visitor = _visit("from a.b.c import x as _x")
     assert visitor.imports == {"a.b.c.x": "_x"}
     assert visitor.imports_by_alias == {"_x": "a.b.c.x"}
-    assert visitor._import_access == {}
+    assert visitor.imports_by_ref == {}
     assert visitor.imported_as("a.b.c", "_x") is None
     assert visitor.imported_as("a.b.c", "y") is None
     assert visitor.imported_as("a.b", "c") is None
@@ -185,7 +185,7 @@ def test_importfrom_star() -> None:
     visitor = _visit("from a import *")
     assert visitor.imports == {"a.*": "*"}
     assert visitor.imports_by_alias == {}
-    assert visitor._import_access == {}
+    assert visitor.imports_by_ref == {}
     assert visitor.imported_as("a", "x") == "x"
 
 
@@ -193,7 +193,7 @@ def test_importfrom_deep_star() -> None:
     visitor = _visit("from a.b.c import *")
     assert visitor.imports == {"a.b.c.*": "*"}
     assert visitor.imports_by_alias == {}
-    assert visitor._import_access == {}
+    assert visitor.imports_by_ref == {}
     assert visitor.imported_as("a.b.c", "x") == "x"
     assert visitor.imported_as("a.b", "x") is None
     assert visitor.imported_as("a.b", "c") is None
@@ -206,7 +206,7 @@ def test_importfrom_deep_star() -> None:
 
 def test_import_access_unused() -> None:
     visitor = _visit("import a")
-    assert visitor._import_access == {}
+    assert visitor.imports_by_ref == {}
 
 
 def test_import_access_module() -> None:
@@ -214,7 +214,7 @@ def test_import_access_module() -> None:
         "import typing",
         "typing",
     )
-    assert visitor._import_access == {"typing": ("typing", None)}
+    assert visitor.imports_by_ref == {"typing": ("typing", None)}
 
 
 def test_import_access_module_alias() -> None:
@@ -222,7 +222,7 @@ def test_import_access_module_alias() -> None:
         "import typing as tp",
         "tp",
     )
-    assert visitor._import_access == {"tp": ("typing", None)}
+    assert visitor.imports_by_ref == {"tp": ("typing", None)}
 
 
 def test_import_access_module_attr() -> None:
@@ -230,7 +230,7 @@ def test_import_access_module_attr() -> None:
         "import typing",
         "Char: typing.TypeAlias = str | int",
     )
-    assert visitor._import_access == {"typing.TypeAlias": ("typing", "TypeAlias")}
+    assert visitor.imports_by_ref == {"typing.TypeAlias": ("typing", "TypeAlias")}
 
 
 def test_import_access_module_alias_attr() -> None:
@@ -238,7 +238,7 @@ def test_import_access_module_alias_attr() -> None:
         "import typing as tp",
         "Char: tp.TypeAlias = str | int",
     )
-    assert visitor._import_access == {"tp.TypeAlias": ("typing", "TypeAlias")}
+    assert visitor.imports_by_ref == {"tp.TypeAlias": ("typing", "TypeAlias")}
 
 
 def test_import_access_package_module_attr() -> None:
@@ -246,7 +246,7 @@ def test_import_access_package_module_attr() -> None:
         "import collections.abc",
         "def f() -> collections.abc.Sequence[int]: ...",
     )
-    assert visitor._import_access == {
+    assert visitor.imports_by_ref == {
         "collections.abc.Sequence": ("collections.abc", "Sequence"),
     }
 
@@ -256,7 +256,7 @@ def test_import_access_package_module_alias_attr() -> None:
         "import collections.abc as abcol",
         "def f() -> abcol.Sequence[int]: ...",
     )
-    assert visitor._import_access == {
+    assert visitor.imports_by_ref == {
         "abcol.Sequence": ("collections.abc", "Sequence"),
     }
 
@@ -266,7 +266,7 @@ def test_import_access_package_attr_attr() -> None:
         "import collections",
         "def f() -> collections.abc.Sequence[int]: ...",
     )
-    assert visitor._import_access == {
+    assert visitor.imports_by_ref == {
         "collections.abc.Sequence": ("collections", "abc.Sequence"),
     }
 

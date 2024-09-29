@@ -1,7 +1,7 @@
 import dataclasses
 import functools
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from itertools import starmap
 from typing import (
     Final,
@@ -275,11 +275,17 @@ def parse_tuple(
     return cst.Tuple(elems) if parens else cst.Tuple(elems, [], [])
 
 
-def parse_name(value: str, /) -> _FullName:
+def parse_name(
+    value: str,
+    /,
+    *,
+    lpar: Sequence[cst.LeftParen] = (),
+    rpar: Sequence[cst.RightParen] = (),
+) -> _FullName:
     if "." in value:
         base, attr = value.rsplit(".", 1)
-        return cst.Attribute(parse_name(base), cst.Name(attr))
-    return cst.Name(value)
+        return cst.Attribute(parse_name(base), cst.Name(attr), lpar=lpar, rpar=rpar)
+    return cst.Name(value, lpar=lpar, rpar=rpar)
 
 
 @overload

@@ -42,12 +42,12 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
 
     # {import_fqn: alias, ...}
     imports: dict[str, str]
-    # {import_fqn: alias, ...}
-    _import_cache: dict[str, str | None]
     # {alias: import_fqn, ...}
     imports_by_alias: dict[str, str]
     # {access_fqn: (import_fqn, attr_fqn), ...}
-    _import_access: dict[str, tuple[str, str | None]]
+    imports_by_ref: dict[str, tuple[str, str | None]]
+    # {import_fqn: alias, ...}
+    _import_cache: dict[str, str | None]
 
     # {(generic_name, param_name), param), ...]
     type_params: dict[tuple[str, str], uncst.TypeParameter]
@@ -67,9 +67,9 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
         # TODO(jorenham): refactor this metadata
         # TODO(jorenham): support non-top-level imports with `collections.ChainMap`
         self.imports = {}
-        self._import_cache = {}
         self.imports_by_alias = {}
-        self._import_access = {}
+        self.imports_by_ref = {}
+        self._import_cache = {}
 
         # TODO(jorenham): refactor type-param stuff as metadata
         self.type_params = {}
@@ -223,7 +223,7 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
         )
 
     def _register_import_access(self, fqn: str, /) -> str | None:
-        if fqn in (import_access := self._import_access):
+        if fqn in (import_access := self.imports_by_ref):
             return import_access[fqn][0]
         if fqn in (import_alias := self.imports_by_alias):
             return import_alias[fqn]
@@ -414,7 +414,7 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     def visit_Name(self, /, node: cst.Name) -> None:
         if self._in_import or self._stack_attr:
             return
-        if (name := node.value) in (access := self._import_access):
+        if (name := node.value) in (access := self.imports_by_ref):
             return
         if module := self.imports_by_alias.get(name):
             access[name] = module, None

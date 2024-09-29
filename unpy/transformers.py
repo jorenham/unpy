@@ -97,23 +97,28 @@ class StubTransformer(cst.CSTTransformer):
     # {(module, name), ...}
     _imports_del: Final[set[tuple[str, str]]]
     _imports_add: Final[set[tuple[str, str]]]
-
+    # {(fqn_old, fqn_new), ...}
+    _renames: Final[dict[str, str]]
     # whether the type alias parameters are referenced in the order they are defined
     _type_alias_alignment: Final[dict[str, bool]]
 
-    _stack: Final[collections.deque[str]]
+    _stack_scope: Final[collections.deque[str]]
+    _stack_attr: Final[collections.deque[cst.Attribute]]
 
     def __init__(self, visitor: StubVisitor, /, target: PythonVersion) -> None:
         self.visitor = visitor
         self.target = target
 
+        self._stack_scope = collections.deque()
+        self._stack_attr = collections.deque()
+
         self._imports_del = set()
         self._imports_add = set()
+        self._renames = {}
         self._type_alias_alignment = {}
-        self._stack = collections.deque()
 
         self.__collect_imports_typevars()
-        self.__collect_imports_backports()
+        self.__collect_import_backports()
         self.__collect_imports_generic()
         self.__collect_imports_type_aliases()
 
@@ -184,43 +189,73 @@ class StubTransformer(cst.CSTTransformer):
                 if module == _MODULE_TPX:
                     self._discard_import(_MODULE_TP, name)
 
-    def __collect_imports_backports(self, /) -> None:
+    def __collection_import_backport_single(self, fqn: str, alias: str, /) -> None:
+        if fqn[0] == "." or "." not in fqn or alias == fqn:
+            return
+
+        module, name = fqn.rsplit(".", 1)
+        if reqs := NAMES_BACKPORT_TPX.get(module):
+            if (req := reqs.get(name)) and self.target < req:
+                module_new, name_new = _MODULE_TPX, name
+            elif name == "*":
+                for name_new in frozenset(reqs) & self.visitor.global_names:
+                    if self.target < reqs[name_new]:
+                        self._require_import(_MODULE_TPX, name_new)
+                return
+            else:
+                return
+        elif (
+            (orig_fqns := NAMES_DEPRECATED_ALIASES.get(module))
+            and (orig_fqn := orig_fqns.get(name))
+        ):  # fmt: skip
+            if name == "*":
+                # TODO(jorenhan): deal with `import *`
+                return
+            module_new, name_new = orig_fqn.rsplit(".", 1)
+        else:
+            return
+
+        self._discard_import(module, name)
+        self._require_import(module_new, name_new)
+        if alias != name_new:
+            self._renames[name] = name_new
+
+    def __collect_import_backports(self, /) -> None:
         # collect the imports that should replaced with a `typing_extensions` backport
         visitor = self.visitor
-        target = self.target
 
-        for fqn in visitor.imports:
-            if fqn[0] == "." or fqn[-1] == "*" or "." not in fqn:
+        for fqn, alias in visitor.imports.items():
+            self.__collection_import_backport_single(fqn, alias)
+
+        for ref, (package, attr) in visitor.imports_by_ref.items():
+            if not attr:
                 continue
 
-            if fqn.startswith("__future__"):
-                # TODO(jorenham): report that `__future__.annotations` is redundant
-                # https://github.com/jorenham/unpy/issues/43
-                raise NotImplementedError("__future__")
+            if "." in attr:
+                submodule, name = attr.rsplit(".", 1)
+                module = f"{package}.{submodule}"
+            else:
+                module, name = package, attr
 
-            module, name = fqn.rsplit(".", 1)
-
-            # TODO(jorenham): report that `typing.TYPE_CHECKING` is redundant
-            # https://github.com/jorenham/unpy/issues/45
+            assert name.isidentifier(), name
 
             if (
                 (reqs := NAMES_BACKPORT_TPX.get(module))
                 and (req := reqs.get(name))
-                and target < req
+                and self.target < req
             ):
-                self._discard_import(module, name)
-                self._require_import(_MODULE_TPX, name, has_backport=False)
-            elif (orig_fqns := NAMES_DEPRECATED_ALIASES.get(module)) and (
-                orig_fqn := orig_fqns.get(name)
-            ):
-                self._discard_import(module, name)
-                module_new, name_new = orig_fqn.rsplit(".", 1)
+                new_module, new_name = _MODULE_TPX, name
+            elif (
+                (new_fqns := NAMES_DEPRECATED_ALIASES.get(module))
+                and (new_fqn := new_fqns.get(name))
+            ):  # fmt: skip
+                new_module, new_name = new_fqn.rsplit(".", 1)
+            else:
+                continue
 
-                if name_new != name:
-                    # TODO: rename the references
-                    continue
-
-                self._require_import(module_new, name_new)
+            new_ref = self._require_import(new_module, new_name)
+            if ref != new_ref:
+                self._renames[ref] = new_ref
 
     def __collect_imports_type_aliases(self, /) -> None:
         # collect the imports for `TypeAlias` and/or `TypeAliasType`
@@ -252,6 +287,14 @@ class StubTransformer(cst.CSTTransformer):
                 break
 
     @override
+    def visit_Import(self, /, node: cst.Import) -> bool:
+        return False
+
+    @override
+    def visit_ImportFrom(self, /, node: cst.ImportFrom) -> bool:
+        return False
+
+    @override
     def leave_ImportFrom(
         self,
         /,
@@ -281,6 +324,36 @@ class StubTransformer(cst.CSTTransformer):
             aliases_new[-1] = aliases_new[-1].with_changes(comma=None)
 
         return updated_node.with_changes(names=aliases_new)
+
+    @override
+    def visit_Attribute(self, /, node: cst.Attribute) -> bool:
+        self._stack_attr.append(node)
+        return False
+
+    @override
+    def leave_Attribute(
+        self,
+        /,
+        original_node: cst.Attribute,
+        updated_node: cst.Attribute,
+    ) -> cst.Attribute | cst.Name:
+        stack = self._stack_attr
+        node = stack.pop()
+        assert node is original_node
+
+        if stack or not isinstance(updated_node.value, cst.Name | cst.Attribute):
+            return updated_node
+
+        name = uncst.get_name_strict(node)
+        if new_name := self._renames.get(name):
+            assert new_name != name
+            return uncst.parse_name(
+                new_name,
+                lpar=updated_node.lpar,
+                rpar=updated_node.rpar,
+            )
+
+        return updated_node
 
     @override
     def leave_TypeAlias(
@@ -322,7 +395,7 @@ class StubTransformer(cst.CSTTransformer):
 
     @override
     def visit_FunctionDef(self, /, node: cst.FunctionDef) -> None:
-        self._stack.append(node.name.value)
+        self._stack_scope.append(node.name.value)
 
     @override
     def leave_FunctionDef(
@@ -331,7 +404,7 @@ class StubTransformer(cst.CSTTransformer):
         original_node: cst.FunctionDef,
         updated_node: cst.FunctionDef,
     ) -> cst.FunctionDef | cst.FlattenSentinel[cst.BaseStatement]:
-        self._stack.pop()
+        self._stack_scope.pop()
 
         if not (tpars := updated_node.type_parameters):
             return updated_node
@@ -344,7 +417,7 @@ class StubTransformer(cst.CSTTransformer):
 
     @override
     def visit_ClassDef(self, /, node: cst.ClassDef) -> None:
-        self._stack.append(node.name.value)
+        self._stack_scope.append(node.name.value)
 
     @override
     def leave_ClassDef(
@@ -353,7 +426,7 @@ class StubTransformer(cst.CSTTransformer):
         original_node: cst.ClassDef,
         updated_node: cst.ClassDef,
     ) -> cst.ClassDef | cst.FlattenSentinel[cst.ClassDef | cst.BaseStatement]:
-        stack = self._stack
+        stack = self._stack_scope
         name = stack.pop()
 
         if not (tpars := original_node.type_parameters):

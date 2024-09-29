@@ -346,6 +346,20 @@ def test_import_buffer():
     assert pyi_out == pyi_expect
 
 
+def test_import_collection_abs_buffer():
+    pyi_in = _src("""
+    import collections.abc
+    def f(x: collections.abc.Buffer, /) -> collections.abc.Sequence[int]: ...
+    """)
+    pyi_expect = _src("""
+    import collections.abc
+    from typing_extensions import Buffer
+    def f(x: Buffer, /) -> collections.abc.Sequence[int]: ...
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect
+
+
 # TODO: move the following tests to a `py313 => py312` test suite
 
 
