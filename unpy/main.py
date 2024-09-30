@@ -82,7 +82,7 @@ _OptionDiff: TypeAlias = Annotated[
 ]
 
 _DEFAULT_OUTPUT: Final = Path("-")
-_DEFAULT_TARGET: Final = Target.PY311
+_DEFAULT_TARGET: Final = Target.PY310
 
 
 def _read_source(source: Path, /) -> str:
