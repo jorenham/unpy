@@ -22,14 +22,14 @@ wheels = [
 
 [[package]]
 name = "basedpyright"
-version = "1.18.0"
+version = "1.18.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "nodejs-wheel-binaries" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/04/05/23147551401a3c94aea505661028f3f5efba6c54b15de7a824f44da269f2/basedpyright-1.18.0.tar.gz", hash = "sha256:82a0cceb7a20bbdd8b801a2ea41a035bc101d94bc634157bcc2ecf0f7aff52f8", size = 52094174 }
+sdist = { url = "https://files.pythonhosted.org/packages/1c/01/f5a8034bc39be24a85e9c82df3ed662da466fde044cbc46ffe996fad5b33/basedpyright-1.18.2.tar.gz", hash = "sha256:ff13c8557f8e8e7cb75c9761d40ebb17a9e8790891faa729521f71784e8ee8b1", size = 52412962 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/94/2c/f4b52ea88799504e236db57ef9aaebc2737561001634ad1b70abf1251962/basedpyright-1.18.0-py3-none-any.whl", hash = "sha256:96238749b870809719d9e99587346056ca68169803095901fc5e028c733c9b54", size = 11012697 },
+    { url = "https://files.pythonhosted.org/packages/3b/63/e4285ed7f902d3a08ff35022ac42265bf885eefe03357689f305600293d1/basedpyright-1.18.2-py3-none-any.whl", hash = "sha256:bebba0456dc87e51e9e25fd7b72f2d75659f0d965473edfb5c8c276b1c5d28b7", size = 11102107 },
 ]
 
 [[package]]
@@ -378,7 +378,7 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "basedmypy", specifier = ">=2.6.0,<3" },
-    { name = "basedpyright", specifier = ">=1.18.0,<2" },
+    { name = "basedpyright", specifier = ">=1.18.2,<2" },
     { name = "codespell", specifier = ">=2.3.0,<3" },
     { name = "pre-commit", specifier = ">=3.8.0,<4" },
     { name = "pytest", specifier = ">=8.3.3,<9" },
