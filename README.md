@@ -1,8 +1,10 @@
 <h1 align="center">unpy</h1>
 
 <p align="center">
-    Backports Python typing stubs to earlier Python versions
+    <i>Unified Python</i>
 </p>
+
+<p align="center">Transpiles <code>.pyi</code> stubs from Python 3.13 to 3.10</p>
 
 <p align="center">
     <a href="https://pypi.org/project/unpy/">
@@ -61,15 +63,13 @@
 ---
 
 > [!IMPORTANT]
-> This project is in the early stages of development;
+> This project is in the alpha stage:
 > You probably shouldn't use it in production.
->
+
 ## Installation
 
-The `unpy` package is available as on PyPI, and can be installed with e.g.
-
-```shell
-pip install unpy
+```console
+$ pip install unpy
 ```
 
 ## Usage
@@ -87,9 +87,8 @@ Options:
   --diff                          Show the changes between the input and
                                   output in unified diff format
   --target [3.10|3.11|3.12|3.13]  The minimum Python version that should be
-                                  supported.  [default: 3.11]
+                                  supported.  [default: 3.10]
   --help                          Show this message and exit.
-
 ```
 
 ## Examples
@@ -233,11 +232,11 @@ potential goals of `unpy`:
 
 1. Towards the past
     - [x] Get frustrated while [stubbing scipy](https://github.com/jorenham/scipy-stubs)
-    - [ ] **[WIP]** Transpile Python 3.13 `.pyi` stubs to Python 3.10 stubs
+    - [x] Transpile Python 3.13 `.pyi` stubs to Python 3.10 stubs
+    - [ ] Package-level analysis and conversion
     - [ ] Tooling for stub-only project integration
     - [ ] Use this in [`scipy-stubs`](https://github.com/jorenham/scipy-stubs)
     - [ ] Gradually introduce this into [`numpy`](https://github.com/numpy/numpy)
-    - [ ]
 2. Towards the future
     - [ ] Beyond Python: $\text{Unpy} \supset \text{Python}$
     - [ ] Language support & tooling for *all* `.py` projects
@@ -297,9 +296,6 @@ potential goals of `unpy`:
     - [x] [PEP 695][PEP695]: `typing.TypeAliasType` => `typing_extensions.TypeAliasType`
     - [x] [PEP 688][PEP688]: `collections.abc.Buffer` => `typing_extensions.Buffer`
     - [ ] [PEP 688][PEP688]: `inspect.BufferFlags` => `int` (#57)
-    - [ ] `calendar.Day` => `1 | ... | 6` and `calendar.Month` => `1 | 2 | ... | 12`
-    - [ ] `csv.QUOTE_STRINGS` => `4` and `csv.QUOTE_NOTNULL` => `5`
-    - [ ] Backport subclasses of `pathlib.{PurePath,Path}` (currently disallowed)
 - Python 3.11 => 3.10
     - [x] [PEP 681][PEP681]: `typing.dataclass_transform` =>
     `typing_extensions.dataclass_transform`
@@ -308,16 +304,14 @@ potential goals of `unpy`:
     - [x] [PEP 655][PEP655]: `typing.[Not]Required` => `typing_extensions.[Not]Required`
     - [ ] [PEP 654][PEP654]: backport exception groups ([`exceptiongroup`][PEP654-IMPL])
     - [x] [PEP 646][PEP646]: `*Ts` => `typing_extensions.Unpack[Ts]`
-    - [ ] Backport `typing.Any` when used as base class (not recommended)
-    - [ ] Backport `asyncio.TaskGroup` when used as base class
-    - [ ] Backport new `enum` members: `StrEnum`, `EnumCheck`, `ReprEnum`,
-    `FlagBoundary`, `property`, `member`, `nonmember`, `global_enum`, `show_flag_values`
+    - [ ] Backport `typing.Any` base class (not recommended)
+    - [ ] Backport `asyncio.TaskGroup` base classes
+    - [ ] `enum.ReprEnum` => `enum.Enum` and `enum.StrEnum` => `str & enum.Enum`
 - Generated `TypeVar`s
     - [ ] Prefix extracted `TypeVar`s names with `_`
     - [x] De-duplicate extracted typevar-likes with same name if equivalent
-    - [ ] Rename extracted typevar-likes with same name if not equivalent )
-    - [ ] Infer variance of `typing_extensions.TypeVar(..., infer_variance=True)` whose
-      name does not end with `{}_contra` (contravariant) or `{}_co` (covariant)
+    - [ ] Rename extracted typevar-likes with same name if not equivalent
+    - [ ] Infer variance of `TypeVar(..., infer_variance=True)`
 
 ### Simplification and refactoring
 

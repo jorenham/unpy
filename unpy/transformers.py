@@ -666,6 +666,6 @@ def transform_source(
     source: str,
     /,
     *,
-    target: PythonVersion = PythonVersion.PY311,
+    target: PythonVersion = PythonVersion.PY310,
 ) -> str:
     return transform_module(cst.parse_module(source), target=target).code
