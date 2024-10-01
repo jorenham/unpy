@@ -243,21 +243,28 @@ potential goals of `unpy`:
 3. Towards each other
     - [ ] Unified typechecking: Fast, reasonable, and language-agnostic
 
-## Roadmap
+## Features
 
 ### Tooling
 
+- Target Python versions
+    - [x] `3.13`
+    - [x] `3.12`
+    - [x] `3.11`
+    - [x] `3.10`
+    - [ ] `3.9`
 - Language support
-    - [x] `.pyi` => `.pyi`
-    - [ ] `.py` => `.py`
+    - [x] `.pyi`
+    - [ ] `.py`
 - Conversion
     - [x] stdin => stdout
     - [x] module => module
     - [ ] package => package
     - [ ] project => project (including the `pyproject.toml`)
 - Configuration
-    - [x] Unified diffs with `--diff`
-    - [ ] Configuration options in `pyproject.toml` as `[tools.unpy]`
+    - [x] `--diff`: Unified diffs
+    - [x] `--target`: Target Python version, defaults to `3.10`
+    - [ ] Project-based config in `pyproject.toml` under `[tools.unpy]`
     - [ ] ...
 - Integration
     - [ ] File watcher
@@ -275,80 +282,102 @@ potential goals of `unpy`:
 ### Stub backporting
 
 - Python 3.13 => 3.12
-    - [x] [PEP 742][PEP742]: `typing.TypeIs` => `typing_extensions.TypeIs`
-    - [x] [PEP 705][PEP705]: `typing.ReadOnly` => `typing_extensions.ReadOnly`
-    - [x] [PEP 702][PEP702]: `warnings.deprecated` => `typing_extensions.deprecated`
-    - [x] [PEP 696][PEP696]: Backport [PEP 695][PEP695] type signatures i.f.f. it
-    includes a type parameter with default
-    - [x] [PEP 696][PEP696]: `typing.NoDefault` => `typing_extensions.NoDefault`
-    - [x] `asyncio.QueueShutDown` => `builtins.Exception`
-    - [x] `pathlib.UnsupportedOperation` => `builtins.NotImplementedError`
-    - [x] `queue.ShutDown` => `builtins.Exception`
-    - [x] `re.PatternError` => `re.error`
-    - [x] `types.CapsuleType` => `typing_extensions.CapsuleType`
-    - [ ] `typing.{ClassVar,Final}` => `typing_extensions.{ClassVar,Final}` when nested
-    (python/cpython#89547)
+    - [PEP 742][PEP742]
+        - [x] `typing.TypeIs` => `typing_extensions.TypeIs`
+    - [PEP 705][PEP705]
+        - [x] `typing.ReadOnly` => `typing_extensions.ReadOnly`
+    - [PEP 702][PEP702]
+        - [x] `warnings.deprecated` => `typing_extensions.deprecated`
+    - [PEP 696][PEP696]
+        - [x] Backport [PEP 695][PEP695] type signatures with a default
+        - [x] `typing.NoDefault` => `typing_extensions.NoDefault`
+    - Exceptions
+        - [x] `asyncio.QueueShutDown` => `builtins.Exception`
+        - [x] `pathlib.UnsupportedOperation` => `builtins.NotImplementedError`
+        - [x] `queue.ShutDown` => `builtins.Exception`
+        - [x] `re.PatternError` => `re.error`
+    - Typing
+        - [x] `types.CapsuleType` => `typing_extensions.CapsuleType`
+        - [ ] `typing.{ClassVar,Final}` => `typing_extensions.{ClassVar,Final}` when
+        nested (python/cpython#89547)
 - Python 3.12 => 3.11
-    - [x] [PEP 698][PEP698]: `typing.override` => `typing_extensions.override`
-    - [x] [PEP 695][PEP695]: Backport `type _` aliases
-    - [x] [PEP 695][PEP695]: Backport generic functions
-    - [x] [PEP 695][PEP695]: Backport generic classes and protocols
-    - [x] [PEP 695][PEP695]: `typing.TypeAliasType` => `typing_extensions.TypeAliasType`
-    - [x] [PEP 688][PEP688]: `collections.abc.Buffer` => `typing_extensions.Buffer`
-    - [x] [PEP 688][PEP688]: `inspect.BufferFlags` => `int` (jorenham/unpy#57)
+    - [PEP 698][PEP698]
+        - [x] `typing.override` => `typing_extensions.override`
+    - [PEP 695][PEP695]
+        - [x] Backport `type _` aliases
+        - [x] Backport generic functions
+        - [x] Backport generic classes and protocols
+        - [x] `typing.TypeAliasType` => `typing_extensions.TypeAliasType`
+    - [PEP 688][PEP688]
+        - [x] `collections.abc.Buffer` => `typing_extensions.Buffer`
+        - [x] `inspect.BufferFlags` => `int`
 - Python 3.11 => 3.10
-    - [x] [PEP 681][PEP681]: `typing.dataclass_transform` =>
-    `typing_extensions.dataclass_transform`
-    - [x] [PEP 675][PEP675]: `typing.LiteralString` => `typing_extensions.LiteralString`
-    - [x] [PEP 673][PEP673]: `typing.Self` => `typing_extensions.Self`
-    - [x] [PEP 655][PEP655]: `typing.[Not]Required` => `typing_extensions.[Not]Required`
-    - [ ] [PEP 654][PEP654]: backport exception groups ([`exceptiongroup`][PEP654-IMPL])
-    - [x] [PEP 646][PEP646]: `*Ts` => `typing_extensions.Unpack[Ts]`
-    - [ ] Backport `typing.Any` base class (not recommended)
-    - [ ] Backport `asyncio.TaskGroup` base classes
-    - [x] `enum.ReprEnum` => `enum.Enum`
-    - [ ] `enum.StrEnum` => `str & enum.Enum`
+    - [PEP 681][PEP681]
+        - [x] `typing.dataclass_transform` => `typing_extensions.dataclass_transform`
+    - [PEP 675][PEP675]
+        - [x] `typing.LiteralString` => `typing_extensions.LiteralString`
+    - [PEP 673][PEP673]
+        - [x] `typing.Self` => `typing_extensions.Self`
+    - [PEP 655][PEP655]
+        - [x] `typing.[Not]Required` => `typing_extensions.[Not]Required`
+    - [PEP 654][PEP654]
+        - [ ] `builtins.BaseExceptionGroup` => ?  (disallowed for now)
+        - [ ] `builtins.ExceptionGroup` => ?  (disallowed for now)
+    - [PEP 646][PEP646]
+        - [x] `typing.TypeVarTuple` => `typing_extensions.TypeVarTuple`
+        - [x] `typing.Unpack` => `typing_extensions.Unpack`
+        - [x] `*Ts` => `typing_extensions.Unpack[Ts]` with `Ts` a `TypeVarTuple`
+    - `asyncio`
+        - [ ] `asyncio.TaskGroup` => ? (disallowed for now)
+    - `enum`
+        - [x] `enum.ReprEnum` => `enum.Enum`
+        - [ ] `enum.StrEnum` => `str & enum.Enum` (disallowed for now)
+    - `typing`
+        - [ ] `typing.Any` => `typing_extensions.Any` if subclassed (disallowed for now)
 - Generated `TypeVar`s
-    - [ ] Prefix extracted `TypeVar`s names with `_`
+    - [ ] Prefix extracted `TypeVar`s names with `_` (jorenham/unpy#38)
     - [x] De-duplicate extracted typevar-likes with same name if equivalent
     - [ ] Rename extracted typevar-likes with same name if not equivalent
-    - [ ] Infer variance of `TypeVar(..., infer_variance=True)`
 
 ### Simplification and refactoring
 
-- Type parameters
+- Generic type parameters
     - [x] Convert `default=Any` with `bound=T` to `default=T`
     - [x] Remove `bound=Any` and `bound=object`
-- Annotations
-    - [ ] Transform `self` parameters to be positional-only
-    - [ ] Use `None` as the default return type
-    - [ ] De-duplicate and flatten unions and literals
+    - [ ] Infer variance of PEP 695 type parameters (jorenham/unpy#44)
+        - [ ] If never used, it's redundant (and bivariant) (jorenham/unpy#46)
+        - [x] If constraints are specified, it's `invariant`
+        - [x] If suffixed with `_co`/`_contra`, it's `covariant`/`contravariant`
+        - [ ] If used as public instance attribute, it's `invariant`
+        - [ ] If only used as return-type (excluding `__init__` and `__new__`), or for
+        read-only attributes, it's `covariant`
+        - [ ] If only used as parameter-type, it's `contravariant`
+        - [ ] Otherwise, assume it's `invariant`
+- Methods
+    - [ ] Default return types for specific "special method" (jorenham/unpy#55)
+    - [ ] Transform `self` method parameters to be positional-only
+- Typing operators
     - [ ] `type[S] | type[T]` => `type[S | T]`
+    - [ ] Flatten & de-duplicate unions of literals
+    - [ ] Remove redundant union values, e.g. `bool | int` => `int`
 
 ### Beyond Python
 
-- [ ] Bare `Literal`s (as implemented in [basedmypy][BMP-BARE])
-- [ ] Type-mappings, which would remove the need for most overloads
-- [ ] Intersection types (as implemented in [basedmypy][BMP-ISEC])
+- [ ] `@sealed` types (jorenham/unpy/#42)
+- [ ] Unified type-ignore comments (jorenham/unpy/#68)
+- [ ] Set-based `Literal` syntax
 - [ ] Reusable method signature definitions
+- [ ] Type-mappings, a DRY alternative to `@overload`
+- [ ] Intersection types (as implemented in [basedmypy][BMP-ISEC])
 - [ ] Higher-kinded types (see python/typing#548)
-- [ ] Inline callable types
-- [ ] Annotating side-effects: exceptions, warnings, stdout, stderr, etc.
-- [ ] Declarative operator overloading syntax
-- [ ] Literal type unpacking
-
-### Analysis
-
-- [ ] Unified linting, type-checking, and stubtesting
-- [ ] Error messages for humans
-- [ ] ???
+- [ ] Inline callable types (inspired by [PEP 677][PEP677])
 
 [PEP646]: https://peps.python.org/pep-0646/
 [PEP654]: https://peps.python.org/pep-0654/
-[PEP654-IMPL]: https://github.com/agronholm/exceptiongroup
 [PEP655]: https://peps.python.org/pep-0655/
 [PEP673]: https://peps.python.org/pep-0673/
 [PEP675]: https://peps.python.org/pep-0675/
+[PEP677]: https://peps.python.org/pep-0677/
 [PEP681]: https://peps.python.org/pep-0681/
 [PEP688]: https://peps.python.org/pep-0688/
 [PEP695]: https://peps.python.org/pep-0695/
@@ -357,5 +386,4 @@ potential goals of `unpy`:
 [PEP702]: https://peps.python.org/pep-0702/
 [PEP705]: https://peps.python.org/pep-0705/
 [PEP742]: https://peps.python.org/pep-0705/
-[BMP-BARE]: https://github.com/KotlinIsland/basedmypy#bare-literals
 [BMP-ISEC]: https://github.com/KotlinIsland/basedmypy#intersection-types
