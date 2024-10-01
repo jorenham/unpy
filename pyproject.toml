@@ -113,7 +113,7 @@ executionEnvironments = [
 
 [tool.pytest.ini_options]
 testpaths = ["unpy", "tests"]
-addopts = ["-ra", "--strict-config", "--strict-markers", "--doctest-modules"]
+addopts = ["-ra", "-vv", "--strict-config", "--strict-markers", "--doctest-modules"]
 doctest_optionflags = ["NORMALIZE_WHITESPACE", "ELLIPSIS"]
 filterwarnings = ["error"]
 log_cli_level = "INFO"

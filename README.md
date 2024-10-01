@@ -281,10 +281,10 @@ potential goals of `unpy`:
     - [x] [PEP 696][PEP696]: Backport [PEP 695][PEP695] type signatures i.f.f. it
     includes a type parameter with default
     - [x] [PEP 696][PEP696]: `typing.NoDefault` => `typing_extensions.NoDefault`
-    - [ ] `asyncio.QueueShutDown` => `builtins.Exception`
-    - [ ] `pathlib.UnsupportedOperation` => `builtins.NotImplementedError`
-    - [ ] `queue.ShutDown` => `builtins.Exception`
-    - [ ] `re.PatternError` => `re.error`
+    - [x] `asyncio.QueueShutDown` => `builtins.Exception`
+    - [x] `pathlib.UnsupportedOperation` => `builtins.NotImplementedError`
+    - [x] `queue.ShutDown` => `builtins.Exception`
+    - [x] `re.PatternError` => `re.error`
     - [x] `types.CapsuleType` => `typing_extensions.CapsuleType`
     - [ ] `typing.{ClassVar,Final}` => `typing_extensions.{ClassVar,Final}` when nested
     (python/cpython#89547)
@@ -295,7 +295,7 @@ potential goals of `unpy`:
     - [x] [PEP 695][PEP695]: Backport generic classes and protocols
     - [x] [PEP 695][PEP695]: `typing.TypeAliasType` => `typing_extensions.TypeAliasType`
     - [x] [PEP 688][PEP688]: `collections.abc.Buffer` => `typing_extensions.Buffer`
-    - [ ] [PEP 688][PEP688]: `inspect.BufferFlags` => `int` (#57)
+    - [x] [PEP 688][PEP688]: `inspect.BufferFlags` => `int` (jorenham/unpy#57)
 - Python 3.11 => 3.10
     - [x] [PEP 681][PEP681]: `typing.dataclass_transform` =>
     `typing_extensions.dataclass_transform`
@@ -306,7 +306,8 @@ potential goals of `unpy`:
     - [x] [PEP 646][PEP646]: `*Ts` => `typing_extensions.Unpack[Ts]`
     - [ ] Backport `typing.Any` base class (not recommended)
     - [ ] Backport `asyncio.TaskGroup` base classes
-    - [ ] `enum.ReprEnum` => `enum.Enum` and `enum.StrEnum` => `str & enum.Enum`
+    - [x] `enum.ReprEnum` => `enum.Enum`
+    - [ ] `enum.StrEnum` => `str & enum.Enum`
 - Generated `TypeVar`s
     - [ ] Prefix extracted `TypeVar`s names with `_`
     - [x] De-duplicate extracted typevar-likes with same name if equivalent

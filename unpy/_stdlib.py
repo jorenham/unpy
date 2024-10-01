@@ -4,15 +4,13 @@ from importlib.machinery import ModuleSpec
 from typing import Final
 
 __all__ = (
-    "BASES_WITHOUT_BACKPORT",
-    "GLOBALS_DEFAULT",
-    "NAMES_BACKPORT_TPX",
-    "NAMES_DEPRECATED_ALIASES",
-    "NAMES_WITHOUT_BACKPORT",
+    "BACKPORTS",
+    "DEFAULT_GLOBALS",
+    "UNSUPPORTED_BASES",
+    "UNSUPPORTED_NAMES",
 )
 
-
-GLOBALS_DEFAULT: Final[dict[str, type | object]] = {
+DEFAULT_GLOBALS: Final[dict[str, type | object]] = {
     "__name__": str,
     "__doc__": str | None,
     "__package__": str | None,
@@ -24,65 +22,33 @@ GLOBALS_DEFAULT: Final[dict[str, type | object]] = {
     "__cached__": str | None,
 }
 
-NAMES_DEPRECATED_ALIASES: Final = {
-    typing_module: {
-        # builtins
-        "Text": "builtins.str",
-        **{
-            alias: f"builtins.{alias.lower()}"
-            for alias in ["Dict", "List", "Set", "FrozenSet", "Tuple", "Type"]
-        },
-        # typing
-        "IntVar": f"{typing_module}.TypeVar",
-        "runtime": f"{typing_module}.runtime_checkable",
-        # collections
-        "DefaultDict": "collections.defaultdict",
-        "Deque": "collections.deque",
-        "ChainMap": "collections.ChainMap",
-        "Counter": "collections.Counter",
-        "OrderedDict": "collections.OrderedDict",
-        # collections.abc
-        "AbstractSet": "collections.abc.Set",
-        **{
-            name: f"collections.abc.{name}"
-            for name in [
-                "Collection",
-                "Container",
-                "ItemsView",
-                "KeysView",
-                "ValuesView",
-                "Mapping",
-                "MappingView",
-                "MutableMapping",
-                "MutableSequence",
-                "MutableSet",
-                "Sequence",
-                "Coroutine",
-                "AsyncGenerator",
-                "AsyncIterable",
-                "AsyncIterator",
-                "Awaitable",
-                "Iterable",
-                "Iterator",
-                "Callable",
-                "Generator",
-                "Hashable",
-                "Reversible",
-                "Sized",
-            ]
-        },
-        # contextlib
-        "ContextManager": "contextlib.ContextManager",
-        "AsyncContextManager": "contextlib.AsyncContextManager",
-        # re
-        "Pattern": "re.Pattern",
-        "Match": "re.Match",
-    }
-    for typing_module in ["typing", "typing_extensions"]
+UNSUPPORTED_NAMES: Final = {
+    "asyncio": {
+        "TaskGroup": (3, 11),
+    },
+    "builtins": {
+        "_IncompleteInputError": (3, 13),
+        "PythonFinalizationError": (3, 13),
+        "BaseExceptionGroup": (3, 11),
+        "ExceptionGroup": (3, 11),
+        "EncodingWarning": (3, 10),
+    },
+    "enum": {
+        # TODO(jorenham): Backport to `builtins.str & enum.Enum`
+        "StrEnum": (3, 11),
+    },
+}
+UNSUPPORTED_BASES: Final = {
+    "builtins": {"object": (4, 0)},
+    "inspect": {"BufferFlags", (3, 12)},
+    "pathlib": {"Path": (3, 12)},
+    "typing": {"Any": (3, 11)},
+    "typing_extensions": {"Any": (3, 11)},
 }
 
+
 # stdlib imports that have a backport in `typing_extensions`
-NAMES_BACKPORT_TPX: Final = {
+_BACKPORTS_TPX: Final = {
     "collections.abc": {
         "Buffer": (3, 12),
     },
@@ -131,24 +97,101 @@ NAMES_BACKPORT_TPX: Final = {
         "deprecated": (3, 13),
     },
 }
+_BACKPORTS_DEPRECATED: Final = {
+    typing_module: {
+        # builtins
+        "Text": ("builtins", "str"),
+        **{
+            alias: ("builtins", alias.lower())
+            for alias in ["Dict", "List", "Set", "FrozenSet", "Tuple", "Type"]
+        },
+        # typing
+        "IntVar": (typing_module, "TypeVar"),
+        "runtime": (typing_module, "runtime_checkable"),
+        # collections
+        "DefaultDict": ("collections", "defaultdict"),
+        "Deque": ("collections", "deque"),
+        "ChainMap": ("collections", "ChainMap"),
+        "Counter": ("collections", "Counter"),
+        "OrderedDict": ("collections", "OrderedDict"),
+        # collections.abc
+        "AbstractSet": ("collections.abc", "Set"),
+        **{
+            name: ("collections.abc", name)
+            for name in [
+                "Collection",
+                "Container",
+                "ItemsView",
+                "KeysView",
+                "ValuesView",
+                "Mapping",
+                "MappingView",
+                "MutableMapping",
+                "MutableSequence",
+                "MutableSet",
+                "Sequence",
+                "Coroutine",
+                "AsyncGenerator",
+                "AsyncIterable",
+                "AsyncIterator",
+                "Awaitable",
+                "Iterable",
+                "Iterator",
+                "Callable",
+                "Generator",
+                "Hashable",
+                "Reversible",
+                "Sized",
+            ]
+        },
+        # contextlib
+        "ContextManager": ("contextlib", "ContextManager"),
+        "AsyncContextManager": ("contextlib", "AsyncContextManager"),
+        # re
+        "Pattern": ("re", "Pattern"),
+        "Match": ("re", "Match"),
+    }
+    for typing_module in ["typing", "typing_extensions"]
+}
 
-NAMES_WITHOUT_BACKPORT: Final = {
-    "builtins": {
-        "_IncompleteInputError": (3, 13),
-        "PythonFinalizationError": (3, 13),
-        "BaseExceptionGroup": (3, 11),
-        "ExceptionGroup": (3, 11),
-        "EncodingWarning": (3, 10),
+BACKPORTS: Final = {
+    "asyncio": {
+        "QueueShutDown": ("builtins", "Exception", (3, 13)),
     },
-}
-BASES_WITHOUT_BACKPORT: Final = {
+    "collections.abc": {},
+    "enum": {
+        "ReprEnum": ("enum", "Enum", (3, 11)),
+    },
+    "inspect": {
+        "BufferFlags": ("builtins", "int", (3, 12)),
+    },
     "pathlib": {
-        "Path": (3, 12),
+        "UnsupportedOperation": ("builtins", "NotImplementedError", (3, 13)),
     },
-    "typing": {
-        "Any": (3, 11),
+    "queue": {
+        "ShutDown": ("builtins", "Exception", (3, 13)),
     },
-    "typing_extensions": {
-        "Any": (3, 11),
+    "re": {
+        "PatternError": ("re", "error", (3, 13)),
     },
 }
+
+
+def __collect_backports() -> None:
+    for module, reqs in _BACKPORTS_TPX.items():
+        if module not in BACKPORTS:
+            BACKPORTS[module] = {}
+        BACKPORTS[module] |= {
+            name: ("typing_extensions", name, req) for name, req in reqs.items()
+        }
+
+    for module, aliases in _BACKPORTS_DEPRECATED.items():
+        if module not in BACKPORTS:
+            BACKPORTS[module] = {}
+        BACKPORTS[module] |= {
+            name: (module_new, name_new, (4, 0))
+            for name, (module_new, name_new) in aliases.items()
+        }
+
+
+__collect_backports()
