@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "unpy"
-version = "0.2.2.dev0"
+version = "0.3.0.dev0"
 description = "Backports Python Typing Stubs"
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -73,7 +73,7 @@ dev-dependencies = [
     "pre-commit>=3.8.0,<4",
     "pytest>=8.3.3,<9",
     "ruff>=0.6.8,<1",
-    "tox>=4.20.0,<5",
+    "tox>=4.21.0,<5",
 ]
 
 [tool.mypy]
@@ -179,25 +179,20 @@ max-locals = 32
 max-statements = 100
 
 [tool.tox]
-legacy_tox_ini = """
-[tox]
 isolated_build = true
-requires = tox>=4
-envlist =
-    pre-commit
-    py{312,313rc2}
+# requires = ["tox>=4.21"]
+env_list = ["3.12", "3.13", "precommit"]
 
-[testenv]
-description = pytest
+[tool.tox.env_run_base]
+description = "test with {base_python}"
 skip_install = true
-allowlist_externals = uv
-commands_pre = uv sync --frozen --dev
-commands = uv run pytest
+allowlist_externals = ["uv"]
+commands_pre = [["uv", "sync", "--frozen", "--dev"]]
+commands = [["uv", "run", "pytest"]]
 
-[testenv:pre-commit]
-description = pre-commit
+[tool.tox.env.precommit]
+description = "pre-commit"
 skip_install = true
-allowlist_externals = uv
-commands_pre = uv sync --frozen --dev
-commands = uv run pre-commit run --all-files
-"""
+allowlist_externals = ["uv"]
+commands_pre = [["uv", "sync", "--frozen", "--dev"]]
+commands = [["uv", "run", "pre-commit", "run", "--all-files"]]

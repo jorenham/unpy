@@ -67,6 +67,7 @@ repos:
         entry: uv run mypy
         language: system
         types_or: [python, pyi]
+        exclude: ^examples
 
       - id: basedpyright
         name: basedpyright
