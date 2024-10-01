@@ -13,10 +13,9 @@ else:
 import libcst as cst
 
 import unpy._cst as uncst
-
-from ._stdlib import NAMES_BACKPORT_TPX, NAMES_DEPRECATED_ALIASES
-from ._types import PythonVersion
-from .visitors import StubVisitor
+from unpy._stdlib import BACKPORTS
+from unpy._types import PythonVersion
+from unpy.visitors import StubVisitor
 
 __all__ = ("StubTransformer",)
 
@@ -40,7 +39,6 @@ def _new_typing_import_index(module_node: cst.Module) -> int:
     - *before* the first `from {module} import _` s.t. `module > _MODULE_TP`
     - *before* the first function-, or class definition
     - *before* the first compound statement
-
     """
     i_insert = 0
     for i, statement in enumerate(module_node.body):
@@ -127,7 +125,7 @@ class StubTransformer(cst.CSTTransformer):
         self._type_alias_alignment = {}
 
         self.__collect_imports_typevars()
-        self.__collect_import_backports()
+        self.__collect_imports_backport()
         self.__collect_imports_generic()
         self.__collect_imports_type_aliases()
 
@@ -147,8 +145,8 @@ class StubTransformer(cst.CSTTransformer):
         if has_backport is None:
             has_backport = (
                 module == _MODULE_TP
-                or module in NAMES_BACKPORT_TPX
-                and name in NAMES_BACKPORT_TPX[module]
+                or module in BACKPORTS
+                and name in BACKPORTS[module]
             )
         elif has_backport:
             assert module != _MODULE_TPX
@@ -194,7 +192,7 @@ class StubTransformer(cst.CSTTransformer):
         target = self.target
         for type_param in self.visitor.type_params.values():
             for module, name in type_param.required_imports(target):
-                self._require_import(module, name)
+                self._require_import(module, name, has_backport=module == _MODULE_TP)
                 if module == _MODULE_TPX:
                     self._discard_import(_MODULE_TP, name)
 
@@ -203,33 +201,29 @@ class StubTransformer(cst.CSTTransformer):
             return
 
         module, name = fqn.rsplit(".", 1)
-        if reqs := NAMES_BACKPORT_TPX.get(module):
-            if (req := reqs.get(name)) and self.target < req:
-                module_new, name_new = _MODULE_TPX, name
-            elif name == "*":
-                for name_new in frozenset(reqs) & self.visitor.global_names:
-                    if self.target < reqs[name_new]:
-                        self._require_import(_MODULE_TPX, name_new)
-                return
-            else:
-                return
-        elif (
-            (orig_fqns := NAMES_DEPRECATED_ALIASES.get(module))
-            and (orig_fqn := orig_fqns.get(name))
-        ):  # fmt: skip
-            if name == "*":
-                # TODO(jorenhan): deal with `import *`
-                return
-            module_new, name_new = orig_fqn.rsplit(".", 1)
-        else:
+        if not (backports := BACKPORTS.get(module)):
             return
 
-        self._discard_import(module, name)
-        self._require_import(module_new, name_new)
-        if alias != name_new:
-            self._renames[name] = name_new
+        target = self.target
 
-    def __collect_import_backports(self, /) -> None:
+        if name == "*":
+            for name_old in frozenset(backports) & self.visitor.global_names:
+                module_new, name_new, req = backports[name_old]
+                if target < req:
+                    self._require_import(module_new, name_new, has_backport=False)
+            return
+
+        if name not in backports:
+            return
+
+        module_new, name_new, req = backports[name]
+        if target < req:
+            self._discard_import(module, name)
+            self._require_import(module_new, name_new, has_backport=False)
+            if alias != name_new:
+                self._renames[name] = name_new
+
+    def __collect_imports_backport(self, /) -> None:
         # collect the imports that should replaced with a `typing_extensions` backport
         visitor = self.visitor
 
@@ -249,22 +243,15 @@ class StubTransformer(cst.CSTTransformer):
             assert name.isidentifier(), name
 
             if (
-                (reqs := NAMES_BACKPORT_TPX.get(module))
-                and (req := reqs.get(name))
-                and self.target < req
+                (backports := BACKPORTS.get(module))
+                and name in backports
+                and self.target < backports[name][2]
             ):
-                new_module, new_name = _MODULE_TPX, name
-            elif (
-                (new_fqns := NAMES_DEPRECATED_ALIASES.get(module))
-                and (new_fqn := new_fqns.get(name))
-            ):  # fmt: skip
-                new_module, new_name = new_fqn.rsplit(".", 1)
-            else:
-                continue
+                new_module, new_name, _ = backports[name]
 
-            new_ref = self._require_import(new_module, new_name)
-            if ref != new_ref:
-                self._renames[ref] = new_ref
+                new_ref = self._require_import(new_module, new_name, has_backport=False)
+                if ref != new_ref:
+                    self._renames[ref] = new_ref
 
     def __collect_imports_type_aliases(self, /) -> None:
         # collect the imports for `TypeAlias` and/or `TypeAliasType`
@@ -335,6 +322,22 @@ class StubTransformer(cst.CSTTransformer):
         return updated_node.with_changes(names=aliases_new)
 
     @override
+    def leave_Name(
+        self,
+        /,
+        original_node: cst.Name,
+        updated_node: cst.Name,
+    ) -> cst.Attribute | cst.Name:
+        if not self._stack_attr and (rename := self._renames.get(updated_node.value)):
+            return uncst.parse_name(
+                rename,
+                lpar=updated_node.lpar,
+                rpar=updated_node.rpar,
+            )
+
+        return updated_node
+
+    @override
     def visit_Attribute(self, /, node: cst.Attribute) -> bool:
         self._stack_attr.append(node)
         return False
@@ -403,8 +406,9 @@ class StubTransformer(cst.CSTTransformer):
 
     def _unpack_variadic_type(self, node: cst.Name | cst.Subscript, /) -> cst.Subscript:
         # wrap the variadic type in `Unpack[_]`
+        name_new = self._require_import(_MODULE_TPX, "Unpack", has_backport=False)
         return cst.Subscript(
-            uncst.parse_name(self._require_import(_MODULE_TPX, "Unpack")),
+            uncst.parse_name(name_new),
             [cst.SubscriptElement(cst.Index(node))],
         )
 
@@ -480,7 +484,11 @@ class StubTransformer(cst.CSTTransformer):
             new_node = uncst.parse_assign(
                 name,
                 uncst.parse_call(
-                    self._require_import(module, _NAME_ALIAS_PEP695),
+                    self._require_import(
+                        module,
+                        _NAME_ALIAS_PEP695,
+                        has_backport=module == _MODULE_TP,
+                    ),
                     uncst.parse_str(name),
                     value,
                     type_params=uncst.parse_tuple(p.param.name for p in type_params),

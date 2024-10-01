@@ -1,3 +1,5 @@
+# ruff: noqa: N802
+
 import textwrap
 
 import pytest
@@ -529,21 +531,74 @@ def test_import_capsule_type():
     assert pyi_out == pyi_expect
 
 
-def test_subclass_path():
+def test_backport_exceptions():
     pyi_in = _src("""
-    from pathlib import Path
+    import re
+    from asyncio import QueueShutDown
+    from pathlib import UnsupportedOperation
+    from queue import ShutDown
 
-    class MyPath(Path): ...
+    class AsyncShutdownError(QueueShutDown): ...
+    class ShutdownError(ShutDown): ...
+    class UnsupportedError(UnsupportedOperation): ...
+    class RegexError(re.PatternError): ...
     """)
-    with pytest.raises(NotImplementedError):
-        transform_source(pyi_in)
+    pyi_expect = _src("""
+    import re
+
+    class AsyncShutdownError(Exception): ...
+    class ShutdownError(Exception): ...
+    class UnsupportedError(NotImplementedError): ...
+    class RegexError(re.error): ...
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect
 
 
-def test_subclass_pathlib_path():
+def test_backport_enum_ReprEnum():
     pyi_in = _src("""
+    from enum import ReprEnum
+
+    class StrEnum(str, ReprEnum): ...
+    """)
+    pyi_expect = _src("""
+    from enum import Enum
+
+    class StrEnum(str, Enum): ...
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect
+
+
+def test_backport_inspect_BufferFlags():
+    pyi_in = _src("""
+    from inspect import BufferFlags
+    from optype import CanBuffer
+
+    def buffer(obj: CanBuffer[BufferFlags], flags: BufferFlags, /) -> memoryview: ...
+    """)
+    pyi_expect = _src("""
+    from optype import CanBuffer
+
+    def buffer(obj: CanBuffer[int], flags: int, /) -> memoryview: ...
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect
+
+
+def test_subclass_pathlib_Path():
+    pyi_import = _src("""
     import pathlib
 
     class MyPath(pathlib.Path): ...
     """)
     with pytest.raises(NotImplementedError):
-        transform_source(pyi_in)
+        transform_source(pyi_import)
+
+    pyi_import_from = _src("""
+    from pathlib import Path
+
+    class MyPath(Path): ...
+    """)
+    with pytest.raises(NotImplementedError):
+        transform_source(pyi_import_from)
