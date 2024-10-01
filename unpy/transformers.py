@@ -13,7 +13,7 @@ else:
 import libcst as cst
 
 import unpy._cst as uncst
-from unpy._stdlib import BACKPORTS
+from unpy._stdlib import BACKPORTS, UNSUPPORTED_BASES
 from unpy._types import PythonVersion
 from unpy.visitors import StubVisitor
 
@@ -124,6 +124,7 @@ class StubTransformer(cst.CSTTransformer):
         self._renames = {}
         self._type_alias_alignment = {}
 
+        self.__check_base_classes()
         self.__collect_imports_typevars()
         self.__collect_imports_backport()
         self.__collect_imports_generic()
@@ -186,6 +187,31 @@ class StubTransformer(cst.CSTTransformer):
             return name
 
         return None
+
+    def __check_base_classes(self, /) -> None:
+        # raise for unsupported base classes
+        target = self.target
+        visitor = self.visitor
+
+        illegal_fqn = {base for base, req in UNSUPPORTED_BASES.items() if target < req}
+        illegal_names = {
+            alias: base
+            for base in illegal_fqn
+            if (alias := visitor.imported_as(*base.rsplit(".", 1)))
+        }
+
+        for bases in self.visitor.class_bases.values():
+            for base in bases:
+                if base in illegal_names:
+                    raise NotImplementedError(f"{illegal_names[base]!r} as base class")
+                base = base.replace("__builtins__.", "builtins.")  # noqa: PLW2901
+                if (fqn := visitor.imports_by_alias.get(base, base)) in illegal_fqn:
+                    raise NotImplementedError(f"{fqn!r} as base class")
+                if base in visitor.imports_by_ref:
+                    module, name = visitor.imports_by_ref[base]
+                    fqn = f"{module}.{name}" if name else module
+                    if fqn in illegal_fqn:
+                        raise NotImplementedError(f"{fqn!r} as base class")
 
     def __collect_imports_typevars(self, /) -> None:
         # collect the missing imports for the typevar-likes
