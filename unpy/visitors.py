@@ -26,6 +26,11 @@ _ILLEGAL_BASES: Final = (
 )
 
 
+def __check_annotation_expr(node: cst.BaseExpression, /) -> None:
+    if isinstance(node, cst.BaseString):
+        raise TypeError("quoted annotations should not be included in stubs")
+
+
 class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     """
     Collect all PEP-695 type-parameters & required imports in the module's functions,
@@ -249,8 +254,8 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
         name = param.name.value
         default = tpar.default
 
-        if isinstance(default, cst.BaseString):
-            raise NotImplementedError("stringified type parameter defaults")
+        if default:
+            __check_annotation_expr(default)
 
         name_any = self.imported_from_typing_as("Any")
         name_object = self.imported_as(_MODULE_BUILTINS, "object")
@@ -279,8 +284,6 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
         constraints: tuple[cst.BaseExpression, ...] = ()
         if not (bound := param.bound):
             pass
-        elif isinstance(bound, cst.BaseString):
-            raise NotImplementedError("stringified type parameter bounds")
         elif (
             name_any
             and isinstance(bound, cst.Name | cst.Attribute)
@@ -308,6 +311,8 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
 
             constraints = tuple(cons)
             bound = None
+        else:
+            __check_annotation_expr(bound)
 
         if _default_any and bound is not None:
             # if `default=Any`, replace it the value of `bound` (`Any` is horrible)
@@ -430,6 +435,10 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     def leave_Attribute(self, /, original_node: cst.Attribute) -> None:
         node = self._stack_attr.pop()
         assert node is original_node
+
+    @override
+    def visit_Annotation(self, /, node: cst.Annotation) -> None:
+        __check_annotation_expr(node.annotation)
 
     def __check_assign_imported(self, node: cst.Assign | cst.AnnAssign, /) -> None:
         if not isinstance(node.value, cst.Name | cst.Attribute):
