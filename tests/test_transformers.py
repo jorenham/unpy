@@ -602,3 +602,35 @@ def test_subclass_pathlib_Path():
     """)
     with pytest.raises(NotImplementedError):
         transform_source(pyi_import_from)
+
+
+def test_subclass_object():
+    pyi_direct = _src("class OldStyle(object): ...")
+    with pytest.raises(NotImplementedError):
+        transform_source(pyi_direct)
+
+
+def test_subclass_builtins_object():
+    pyi_direct = _src("class OldStyle(__builtins__.object): ...")
+    with pytest.raises(NotImplementedError):
+        transform_source(pyi_direct)
+
+
+def test_subclass_builtins_object_import():
+    pyi_direct = _src("""
+    import builtins
+
+    class OldStyle(builtins.object): ...
+    """)
+    with pytest.raises(NotImplementedError):
+        transform_source(pyi_direct)
+
+
+def test_subclass_builtins_object_alias():
+    pyi_direct = _src("""
+    from builtins import object as Object
+
+    class OldStyle(Object): ...
+    """)
+    with pytest.raises(NotImplementedError):
+        transform_source(pyi_direct)

@@ -32,6 +32,8 @@ UNSUPPORTED_NAMES: Final = {
         "BaseExceptionGroup": (3, 11),
         "ExceptionGroup": (3, 11),
         "EncodingWarning": (3, 10),
+        "reveal_locals": (4, 0),
+        "reveal_type": (4, 0),
     },
     "enum": {
         # TODO(jorenham): Backport to `builtins.str & enum.Enum`
@@ -39,11 +41,11 @@ UNSUPPORTED_NAMES: Final = {
     },
 }
 UNSUPPORTED_BASES: Final = {
-    "builtins": {"object": (4, 0)},
-    "inspect": {"BufferFlags", (3, 12)},
-    "pathlib": {"Path": (3, 12)},
-    "typing": {"Any": (3, 11)},
-    "typing_extensions": {"Any": (3, 11)},
+    "builtins.object": (4, 0),
+    "inspect.BufferFlags": (3, 12),
+    "pathlib.Path": (3, 12),
+    "typing.Any": (3, 11),
+    "typing_extensions.Any": (3, 11),
 }
 
 
