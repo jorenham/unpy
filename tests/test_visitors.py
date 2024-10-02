@@ -2,6 +2,7 @@
 
 import libcst as cst
 import pytest
+from unpy.exceptions import StubError
 from unpy.visitors import StubVisitor
 
 
@@ -9,6 +10,37 @@ def _visit(*lines: str) -> StubVisitor:
     source = "\n".join(lines).rstrip() + "\n"
     _ = cst.MetadataWrapper(cst.parse_module(source)).visit(visitor := StubVisitor())
     return visitor
+
+
+# stub errors
+
+
+def test_illegal_future_import():
+    # https://github.com/jorenham/unpy/issues/43
+    with pytest.raises(StubError):
+        _visit("from __future__ import annotations")
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Const: 'str' = ...",
+        "type Alias = 'str'",
+        "from typing import TypeAlias\nAlias: TypeAlias = 'str'",
+        "from typing import TypeAliasType\nAlias = TypeAliasType('Alias', 'str')",
+        "from typing import TypeVar\nT = TypeVar('T', bound='str')",
+        "from typing import TypeVar\nT = TypeVar('T', default='str')",
+        "def f(x: 'str') -> str: ...",
+        "def f(x: str) -> 'str': ...",
+        "def f[T: 'str'](x: T) -> T: ...",
+        "def f[T: str = 'str'](x: T) -> T: ...",
+        "class C[T: 'str']: ...",
+        "class C[T: str = 'str']: ...",
+    ],
+)
+def test_stringified_annotations(source: str):
+    with pytest.raises(StubError):
+        _visit(source)
 
 
 # imports
@@ -271,9 +303,7 @@ def test_import_access_package_attr_attr() -> None:
     }
 
 
-# baseclass
-# TODO: more tests
-
+# baseclasses
 
 def test_baseclasses_single() -> None:
     visitor = _visit(
