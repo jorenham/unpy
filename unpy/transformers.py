@@ -106,6 +106,7 @@ class StubTransformer(cst.CSTTransformer):
     _imports_add: Final[set[tuple[str, str]]]
     # {(fqn_old, fqn_new), ...}
     _renames: Final[dict[str, str]]
+    _renamed_typevar_refs: Final[dict[cst.Name, cst.Name]]
     # whether the type alias parameters are referenced in the order they are defined
     _type_alias_alignment: Final[dict[str, bool]]
 
@@ -122,6 +123,7 @@ class StubTransformer(cst.CSTTransformer):
         self._imports_del = set()
         self._imports_add = set()
         self._renames = {}
+        self._renamed_typevar_refs = {}
         self._type_alias_alignment = {}
 
         self.__check_base_classes()
@@ -367,12 +369,26 @@ class StubTransformer(cst.CSTTransformer):
         original_node: cst.Name,
         updated_node: cst.Name,
     ) -> cst.Attribute | cst.Name:
-        if not self._stack_attr and (rename := self._renames.get(updated_node.value)):
+        if self._stack_attr:
+            return updated_node
+        name = updated_node.value
+        if rename := self._renames.get(name):
             return uncst.parse_name(
                 rename,
                 lpar=updated_node.lpar,
                 rpar=updated_node.rpar,
             )
+
+        if not (stack := list(self._stack_scope)) or name.startswith("_"):
+            return updated_node
+
+        for lvl in range(len(stack), 0, -1):
+            scope = ".".join(stack[:lvl])
+            if (scope, name) in self.visitor.type_params:
+                # prefix extracted typevar-like names with `_`
+                updated_node = updated_node.with_changes(value=f"_{name}")
+                self._renamed_typevar_refs.setdefault(original_node, updated_node)
+                break
 
         return updated_node
 
@@ -422,7 +438,7 @@ class StubTransformer(cst.CSTTransformer):
             for i in range(len(scope), 0, -1):
                 fqn = ".".join(scope[:i])
                 for tpar in visitor.type_params_grouped[fqn]:
-                    if name != tpar.name:
+                    if name != tpar.name_private:
                         continue
                     if not isinstance(tpar, uncst.TypeVarTuple):
                         raise TypeError(f"cannot unpack a {type(tpar).__name__}")
@@ -653,10 +669,12 @@ class StubTransformer(cst.CSTTransformer):
         original_node: cst.Module,
         updated_node: cst.Module,
     ) -> cst.Module:
+        visitor = self.visitor
+
         # all modules that were seen in the `from {module} import ...` statements
         from_modules = {
             fqn.rsplit(".", 1)[0]
-            for fqn, alias in self.visitor.imports.items()
+            for fqn, alias in visitor.imports.items()
             if fqn != alias
         }
 
@@ -678,7 +696,7 @@ class StubTransformer(cst.CSTTransformer):
 
         new_typevar_stmts: list[cst.SimpleStatementLine] = []
         tpars: dict[str, uncst.TypeParameter] = {}
-        for (_, name), tpar in self.visitor.type_params.items():
+        for (_, name), tpar in visitor.type_params.items():
             if name in tpars:
                 if tpar == tpars[name]:
                     continue
@@ -687,7 +705,16 @@ class StubTransformer(cst.CSTTransformer):
                 raise NotImplementedError(f"conflicting typevar definitions: {name!r}")
 
             tpars[name] = tpar
-            new_typevar_stmts.append(cst.SimpleStatementLine([tpar.as_assign()]))
+
+            assign = tpar.as_assign()
+            if tpar.default:
+                # rename all typevar references within the `default=` value
+                for name_old in uncst.get_names_single(tpar.default):
+                    if name_new := self._renamed_typevar_refs.get(name_old):
+                        assign = assign.deep_replace(name_old, name_new)  # type: ignore[arg-type]
+                        assert isinstance(assign, cst.Assign)
+
+            new_typevar_stmts.append(cst.SimpleStatementLine([assign]))
 
         if not new_import_stmts and not new_typevar_stmts:
             return updated_node

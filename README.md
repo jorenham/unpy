@@ -136,17 +136,17 @@ $ unpy --target 3.10 --diff examples/type_aliases.pyi
 - type tciD[V, K] = dict[K, V]
 - type Things[*Ts] = tuple[*Ts]
 - type Callback[**Tss] = Callable[Tss, None]
-+ R = TypeVar("R", bound=float)
-+ V = TypeVar("V")
-+ K = TypeVar("K")
-+ Ts = TypeVarTuple("Ts")
-+ Tss = ParamSpec("Tss")
++ _R = TypeVar("_R", bound=float)
++ _V = TypeVar("_V")
++ _K = TypeVar("_K")
++ _Ts = TypeVarTuple("_Ts")
++ _Tss = ParamSpec("_Tss")
 +
 + Binary: TypeAlias = bytes | bytearray | memoryview
-+ Vector: TypeAlias = tuple[R, ...]
-+ tciD = TypeAliasType("tciD", dict[K, V], type_params=(V, K))
-+ Things: TypeAlias = tuple[Unpack[Ts]]
-+ Callback: TypeAlias = Callable[Tss, None]
++ Vector: TypeAlias = tuple[_R, ...]
++ tciD = TypeAliasType("tciD", dict[_K, _V], type_params=(_V, _K))
++ Things: TypeAlias = tuple[Unpack[_Ts]]
++ Callback: TypeAlias = Callable[_Tss, None]
 ```
 
 Note that `TypeAlias` cannot be used with `tciD` because the definition order of the
@@ -163,11 +163,11 @@ $ unpy --target 3.10 --diff examples/functions.pyi
 ```diff
 +++ -
 @@ -1,6 +1,11 @@
-+ T = TypeVar("T")
-+ S = TypeVar("S", str, bytes)
-+ X = TypeVar("X")
-+ Theta = ParamSpec("Theta")
-+ Y = TypeVar("Y")
++ _T = TypeVar("_T")
++ _S = TypeVar("_S", str, bytes)
++ _X = TypeVar("_X")
++ _Theta = ParamSpec("_Theta")
++ _Y = TypeVar("_Y")
   from collections.abc import Callable as Def
 - from typing import Concatenate as Concat
 + from typing import Concatenate as Concat, ParamSpec, TypeVar
@@ -175,9 +175,9 @@ $ unpy --target 3.10 --diff examples/functions.pyi
 - def noop[T](x: T, /) -> T: ...
 - def concat[S: (str, bytes)](left: S, right: S) -> S: ...
 - def curry[X, **Theta, Y](f: Def[Concat[X, Theta], Y], /) -> Def[[X], Def[Theta, Y]]: ...
-+ def noop(x: T, /) -> T: ...
-+ def concat(left: S, right: S) -> S: ...
-+ def curry(f: Def[Concat[X, Theta], Y], /) -> Def[[X], Def[Theta, Y]]: ...
++ def noop(x: _T, /) -> _T: ...
++ def concat(left: _S, right: _S) -> _S: ...
++ def curry(f: Def[Concat[_X, _Theta], _Y], /) -> Def[[_X], Def[_Theta, _Y]]: ...
 ```
 
 ### Generic classes and protocols
@@ -193,32 +193,37 @@ $ unpy --target 3.10 --diff examples/generics.pyi
 + from typing import Generic, Protocol, overload
 + from typing_extensions import TypeVar
 +
-+ T_contra = TypeVar("T_contra", contravariant=True)
-+ T_co = TypeVar("T_co", covariant=True)
-+ T = TypeVar("T", infer_variance=True)
-+ D = TypeVar("D")
-+ NameT = TypeVar("NameT", infer_variance=True, bound=str)
-+ QualNameT = TypeVar("QualNameT", infer_variance=True, bound=str, default=NameT)
++ _T_contra = TypeVar("_T_contra", contravariant=True)
++ _T_co = TypeVar("_T_co", covariant=True)
++ _T = TypeVar("_T", infer_variance=True)
++ _D = TypeVar("_D")
++ _NameT = TypeVar("_NameT", infer_variance=True, bound=str)
++ _QualNameT = TypeVar("_QualNameT", infer_variance=True, bound=str, default=_NameT)
 
   class Boring: ...
 
 - class CanGetItem[T_contra, T_co](Protocol):
-+ class CanGetItem(Protocol[T_contra, T_co]):
-      def __getitem__(self, k: T_contra, /) -> T_co: ...
+-     def __getitem__(self, k: T_contra, /) -> T_co: ...
++ class CanGetItem(Protocol[_T_contra, _T_co]):
++     def __getitem__(self, k: _T_contra, /) -> _T_co: ...
 
 - class Stack[T]:
-+ class Stack(Generic[T, D]):
-      def push(self, value: T, /) -> None: ...
+-     def push(self, value: T, /) -> None: ...
++ class Stack(Generic[_T, _D]):
++     def push(self, value: _T, /) -> None: ...
       @overload
-      def pop(self, /) -> T: ...
+-     def pop(self, /) -> T: ...
++     def pop(self, /) -> _T: ...
       @overload
 -     def pop[D](self, default: D, /) -> T | D: ...
-+     def pop(self, default: D, /) -> T | D: ...
++     def pop(self, default: _D, /) -> _T | _D: ...
 
 - class Named[NameT: str, QualNameT: str = NameT]:
-+ class Named(Generic[NameT, QualNameT]):
-      __name__: NameT
-      __qualname__: QualNameT
+-     __name__: NameT
+-     __qualname__: QualNameT
++ class Named(Generic[_NameT, _QualNameT]):
++     __name__: _NameT
++     __qualname__: _QualNameT
 ```
 
 Note how `TypeVar` is (only) imported from `typing_extensions` here, which wasn't the
@@ -335,7 +340,7 @@ potential goals of `unpy`:
     - `typing`
         - [ ] `typing.Any` => `typing_extensions.Any` if subclassed (disallowed for now)
 - Generated `TypeVar`s
-    - [ ] Prefix extracted `TypeVar`s names with `_` (jorenham/unpy#38)
+    - [x] Prefix extracted `TypeVar`s names with `_` (jorenham/unpy#38)
     - [x] De-duplicate extracted typevar-likes with same name if equivalent
     - [ ] Rename extracted typevar-likes with same name if not equivalent
 

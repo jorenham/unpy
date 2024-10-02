@@ -67,8 +67,8 @@ def test_type_alias_param():
     pyi_expect = _src("""
     from typing import TypeAlias, TypeVar
 
-    T = TypeVar("T")
-    Pair: TypeAlias = tuple[T, T]
+    _T = TypeVar("_T")
+    Pair: TypeAlias = tuple[_T, _T]
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -79,8 +79,8 @@ def test_type_alias_param_bound():
     pyi_expect = _src("""
     from typing import TypeAlias, TypeVar
 
-    N = TypeVar("N", bound=int)
-    Shape2D: TypeAlias = tuple[N, N]
+    _N = TypeVar("_N", bound=int)
+    Shape2D: TypeAlias = tuple[_N, _N]
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -96,9 +96,9 @@ def test_type_alias_param_constraints():
     import os
     from typing import TypeAlias, TypeVar
 
-    S = TypeVar("S", bytes, str)
+    _S = TypeVar("_S", bytes, str)
 
-    PathLike: TypeAlias = S | os.PathLike[S]
+    PathLike: TypeAlias = _S | os.PathLike[_S]
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -110,8 +110,8 @@ def test_type_alias_param_default():
     from typing import TypeAlias
     from typing_extensions import TypeVar
 
-    T = TypeVar("T", default=object)
-    OneOrMany: TypeAlias = T | tuple[T, ...]
+    _T = TypeVar("_T", default=object)
+    OneOrMany: TypeAlias = _T | tuple[_T, ...]
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -123,9 +123,9 @@ def test_type_alias_params_order_mismatch():
     from typing import TypeVar
     from typing_extensions import TypeAliasType
 
-    T1 = TypeVar("T1")
-    T0 = TypeVar("T0")
-    RPair = TypeAliasType("RPair", tuple[T0, T1], type_params=(T1, T0))
+    _T1 = TypeVar("_T1")
+    _T0 = TypeVar("_T0")
+    RPair = TypeAliasType("RPair", tuple[_T0, _T1], type_params=(_T1, _T0))
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -139,9 +139,9 @@ def test_type_alias_dupe_same():
     pyi_expect = _src("""
     from typing import TypeAlias, TypeVar
 
-    T = TypeVar("T")
-    Solo: TypeAlias = tuple[T]
-    Pair: TypeAlias = tuple[T, T]
+    _T = TypeVar("_T")
+    Solo: TypeAlias = tuple[_T]
+    Pair: TypeAlias = tuple[_T, _T]
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -161,8 +161,8 @@ def test_generic_function():
     pyi_expect = _src("""
     from typing import TypeVar
 
-    T = TypeVar("T")
-    def spam(x: T) -> T: ...
+    _T = TypeVar("_T")
+    def spam(x: _T) -> _T: ...
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -173,8 +173,8 @@ def test_generic_function_bound():
     pyi_expect = _src("""
     from typing import TypeVar
 
-    Z = TypeVar("Z", bound=complex)
-    def f(z: Z) -> Z: ...
+    _Z = TypeVar("_Z", bound=complex)
+    def f(z: _Z) -> _Z: ...
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -185,8 +185,8 @@ def test_generic_function_constraints():
     pyi_expect = _src("""
     from typing import TypeVar
 
-    Z = TypeVar("Z", int, float, complex)
-    def f(z: Z) -> Z: ...
+    _Z = TypeVar("_Z", int, float, complex)
+    def f(z: _Z) -> _Z: ...
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -197,8 +197,34 @@ def test_generic_function_default():
     pyi_expect = _src("""
     from typing_extensions import TypeVar
 
-    Z = TypeVar("Z", bound=complex, default=complex)
-    def f(z: Z = ...) -> Z: ...
+    _Z = TypeVar("_Z", bound=complex, default=complex)
+    def f(z: _Z = ...) -> _Z: ...
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_function_default_other():
+    pyi_in = _src("def f[T, T0 = T](x: T, x0: T0 = ...) -> T | T0: ...")
+    pyi_expect = _src("""
+    from typing_extensions import TypeVar
+
+    _T = TypeVar("_T")
+    _T0 = TypeVar("_T0", default=_T)
+    def f(x: _T, x0: _T0 = ...) -> _T | _T0: ...
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect
+
+
+def test_generic_function_default_other_union():
+    pyi_in = _src("def f[T, T0 = T | None](x: T, x0: T0 = ...) -> T | T0: ...")
+    pyi_expect = _src("""
+    from typing_extensions import TypeVar
+
+    _T = TypeVar("_T")
+    _T0 = TypeVar("_T0", default=_T | None)
+    def f(x: _T, x0: _T0 = ...) -> _T | _T0: ...
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -209,8 +235,8 @@ def test_generic_function_variadic_py311():
     pyi_expect = _src("""
     from typing import TypeVarTuple
 
-    Ts = TypeVarTuple("Ts")
-    def f(*args: *Ts) -> tuple[*Ts]: ...
+    _Ts = TypeVarTuple("_Ts")
+    def f(*args: *_Ts) -> tuple[*_Ts]: ...
     """)
     pyi_out = transform_source(pyi_in, target=PythonVersion.PY311)
     assert pyi_out == pyi_expect
@@ -221,8 +247,8 @@ def test_generic_function_variadic_py310():
     pyi_expect = _src("""
     from typing_extensions import TypeVarTuple, Unpack
 
-    Ts = TypeVarTuple("Ts")
-    def f(*args: Unpack[Ts]) -> tuple[Unpack[Ts]]: ...
+    _Ts = TypeVarTuple("_Ts")
+    def f(*args: Unpack[_Ts]) -> tuple[Unpack[_Ts]]: ...
     """)
     pyi_out = transform_source(pyi_in, target=PythonVersion.PY310)
     assert pyi_out == pyi_expect
@@ -233,8 +259,8 @@ def test_generic_function_variadic_default_py311():
     pyi_expect = _src("""
     from typing import TypeVarTuple, Unpack
 
-    Ts = TypeVarTuple("Ts", default=Unpack[tuple[()]])
-    def f(*args: *Ts) -> tuple[*Ts]: ...
+    _Ts = TypeVarTuple("_Ts", default=Unpack[tuple[()]])
+    def f(*args: *_Ts) -> tuple[*_Ts]: ...
     """)
     pyi_out = transform_source(pyi_in, target=PythonVersion.PY311)
     assert pyi_out == pyi_expect
@@ -245,8 +271,8 @@ def test_generic_function_variadic_default_py310():
     pyi_expect = _src("""
     from typing_extensions import TypeVarTuple, Unpack
 
-    Ts = TypeVarTuple("Ts", default=Unpack[tuple[()]])
-    def f(*args: Unpack[Ts]) -> tuple[Unpack[Ts]]: ...
+    _Ts = TypeVarTuple("_Ts", default=Unpack[tuple[()]])
+    def f(*args: Unpack[_Ts]) -> tuple[Unpack[_Ts]]: ...
     """)
     pyi_out = transform_source(pyi_in, target=PythonVersion.PY310)
     assert pyi_out == pyi_expect
@@ -262,9 +288,9 @@ def test_generic_function_default_any():
     from typing import Any
     from typing_extensions import TypeVar
 
-    Z = TypeVar("Z", bound=complex, default=complex)
+    _Z = TypeVar("_Z", bound=complex, default=complex)
 
-    def f(z: Z = ...) -> Z: ...
+    def f(z: _Z = ...) -> _Z: ...
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -278,9 +304,9 @@ def test_generic_function_dupe_same():
     pyi_expect = _src("""
     from typing import TypeVar
 
-    T = TypeVar("T")
-    def f(x: T, /) -> T: ...
-    def g(y: T, /) -> T: ...
+    _T = TypeVar("_T")
+    def f(x: _T, /) -> _T: ...
+    def g(y: _T, /) -> _T: ...
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -310,10 +336,10 @@ def test_generic_class():
     from typing import Generic
     from typing_extensions import TypeVar
 
-    T_contra = TypeVar("T_contra", contravariant=True)
-    T = TypeVar("T", infer_variance=True)
-    T_co = TypeVar("T_co", covariant=True)
-    class C(Generic[T_contra, T, T_co]): ...
+    _T_contra = TypeVar("_T_contra", contravariant=True)
+    _T = TypeVar("_T", infer_variance=True)
+    _T_co = TypeVar("_T_co", covariant=True)
+    class C(Generic[_T_contra, _T, _T_co]): ...
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -330,11 +356,11 @@ def test_generic_protocol():
     from typing import Protocol
     from typing_extensions import TypeVar
 
-    T_contra = TypeVar("T_contra", contravariant=True)
-    T = TypeVar("T", infer_variance=True)
-    T_co = TypeVar("T_co", covariant=True)
+    _T_contra = TypeVar("_T_contra", contravariant=True)
+    _T = TypeVar("_T", infer_variance=True)
+    _T_co = TypeVar("_T_co", covariant=True)
 
-    class C(Protocol[T_contra, T, T_co]): ...
+    class C(Protocol[_T_contra, _T, _T_co]): ...
     """)
     pyi_out = transform_source(pyi_in)
     assert pyi_out == pyi_expect
@@ -349,10 +375,10 @@ def test_generic_variadic_default_py311():
     from typing import Generic, TypeVarTuple, Unpack
     from typing_extensions import TypeVar
 
-    T = TypeVar("T", infer_variance=True)
-    Ts = TypeVarTuple("Ts", default=Unpack[tuple[()]])
-    class A(Generic[T, *Ts]):
-        a: tuple[T, *Ts]
+    _T = TypeVar("_T", infer_variance=True)
+    _Ts = TypeVarTuple("_Ts", default=Unpack[tuple[()]])
+    class A(Generic[_T, *_Ts]):
+        a: tuple[_T, *_Ts]
     """)
     pyi_out = transform_source(pyi_in, target=PythonVersion.PY311)
     assert pyi_out == pyi_expect
@@ -367,10 +393,10 @@ def test_generic_variadic_default_py310():
     from typing import Generic
     from typing_extensions import TypeVar, TypeVarTuple, Unpack
 
-    T = TypeVar("T", infer_variance=True)
-    Ts = TypeVarTuple("Ts", default=Unpack[tuple[()]])
-    class A(Generic[T, Unpack[Ts]]):
-        a: tuple[T, Unpack[Ts]]
+    _T = TypeVar("_T", infer_variance=True)
+    _Ts = TypeVarTuple("_Ts", default=Unpack[tuple[()]])
+    class A(Generic[_T, Unpack[_Ts]]):
+        a: tuple[_T, Unpack[_Ts]]
     """)
     pyi_out = transform_source(pyi_in, target=PythonVersion.PY310)
     assert pyi_out == pyi_expect
