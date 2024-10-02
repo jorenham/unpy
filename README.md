@@ -331,7 +331,7 @@ potential goals of `unpy`:
         - [ ] `asyncio.TaskGroup` => ? (disallowed for now)
     - `enum`
         - [x] `enum.ReprEnum` => `enum.Enum`
-        - [ ] `enum.StrEnum` => `str & enum.Enum` (disallowed for now)
+        - [x] `enum.StrEnum` => `str & enum.Enum`
     - `typing`
         - [ ] `typing.Any` => `typing_extensions.Any` if subclassed (disallowed for now)
 - Generated `TypeVar`s

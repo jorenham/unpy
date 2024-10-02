@@ -569,6 +569,25 @@ def test_backport_enum_ReprEnum():
     assert pyi_out == pyi_expect
 
 
+def test_backport_enum_StrEnum():
+    pyi_in = _src("""
+    from enum import StrEnum
+
+    class Truth(StrEnum):
+        TRUE = "true"
+        FALSE = "false"
+    """)
+    pyi_expect = _src("""
+    from enum import Enum
+
+    class Truth(str, Enum):
+        TRUE = "true"
+        FALSE = "false"
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect
+
+
 def test_backport_inspect_BufferFlags():
     pyi_in = _src("""
     from inspect import BufferFlags

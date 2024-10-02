@@ -35,10 +35,6 @@ UNSUPPORTED_NAMES: Final = {
         "reveal_locals": (4, 0),
         "reveal_type": (4, 0),
     },
-    "enum": {
-        # TODO(jorenham): Backport to `builtins.str & enum.Enum`
-        "StrEnum": (3, 11),
-    },
 }
 UNSUPPORTED_BASES: Final = {
     "builtins.object": (4, 0),
@@ -163,6 +159,9 @@ BACKPORTS: Final = {
     "collections.abc": {},
     "enum": {
         "ReprEnum": ("enum", "Enum", (3, 11)),
+        # NOTE: `enum.StrEnum` should only be used as baseclass, and is backported
+        # as `str & enum.Enum`
+        "StrEnum": ("enum", "Enum", (3, 11)),
     },
     "inspect": {
         "BufferFlags": ("builtins", "int", (3, 12)),
