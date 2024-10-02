@@ -38,7 +38,19 @@ def test_illegal_future_import():
         "class C[T: str = 'str']: ...",
     ],
 )
-def test_stringified_annotations(source: str):
+def test_illegal_stringified_annotations(source: str):
+    with pytest.raises(StubError):
+        _visit(source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "def __dir__() -> list[str]: ...",
+        "def __getattr__(name: str, /) -> object: ...",
+    ],
+)
+def test_illegal_special_functions_at_module_lvl(source: str):
     with pytest.raises(StubError):
         _visit(source)
 
