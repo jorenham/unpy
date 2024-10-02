@@ -127,6 +127,21 @@ def get_name_strict(node: str | cst.CSTNode, /) -> str:
     raise NotImplementedError(f"not able to parse full name for: {dump(node)}")
 
 
+def get_names_single(node: cst.CSTNode, /) -> set[cst.Name]:
+    """Recursively finds all names that aren't part of an attribute."""
+    names: set[cst.Name] = set()
+    stack = deque([node])
+    while stack:
+        current = stack.pop()
+        if isinstance(current, cst.Name):
+            names.add(current)
+        elif isinstance(current, cst.Attribute | cst.Subscript | cst.Call):
+            continue
+        else:
+            stack.extend(reversed(current.children))
+    return names
+
+
 def get_access_order(
     node: cst.CSTNode,
     names: Iterable[str],
@@ -342,6 +357,10 @@ class TypeParameter:
 
         return hash(self) == hash(other)
 
+    @property
+    def name_private(self, /) -> str:
+        return name if (name := self.name).startswith("_") else f"_{name}"
+
     def required_imports(self, /, target: PythonVersion) -> frozenset[tuple[str, str]]:
         """The imports it would require to use this as typevar-like (no PEP 695)."""
         raise NotImplementedError
@@ -350,7 +369,7 @@ class TypeParameter:
         raise NotImplementedError
 
     def as_subscript_element(self, /, target: PythonVersion) -> cst.SubscriptElement:  # noqa: ARG002
-        return cst.SubscriptElement(cst.Index(cst.Name(self.name)))
+        return cst.SubscriptElement(cst.Index(cst.Name(self.name_private)))
 
     def _as_tuple(self, /) -> tuple[object, ...]:
         return tuple(  # type: ignore[no-any-expr]
@@ -391,7 +410,7 @@ class TypeVar(TypeParameter):
 
     @override
     def as_assign(self, /) -> cst.Assign:
-        args = parse_str(self.name), *self.constraints
+        args = parse_str(self.name_private), *self.constraints
 
         kwargs: dict[str, cst.BaseExpression] = {}
         for key in ("covariant", "contravariant", "infer_variance"):
@@ -402,7 +421,10 @@ class TypeVar(TypeParameter):
         if default := self.default:
             kwargs["default"] = default
 
-        return parse_assign(self.name, parse_call(self.import_alias, *args, **kwargs))
+        return parse_assign(
+            self.name_private,
+            parse_call(self.import_alias, *args, **kwargs),
+        )
 
 
 @final
@@ -441,14 +463,14 @@ class TypeVarTuple(TypeParameter):
             kwargs["default"] = default
 
         return parse_assign(
-            cst.Name(self.name),
-            parse_call(self.import_alias, parse_str(self.name), **kwargs),
+            cst.Name(self.name_private),
+            parse_call(self.import_alias, parse_str(self.name_private), **kwargs),
         )
 
     @override
     def as_subscript_element(self, /, target: PythonVersion) -> cst.SubscriptElement:
         if target >= (3, 11):
-            index = cst.Index(cst.Name(self.name), star="*")
+            index = cst.Index(cst.Name(self.name_private), star="*")
         else:
             index = cst.Index(self.as_unpack())
         return cst.SubscriptElement(index)
@@ -473,10 +495,10 @@ class ParamSpec(TypeParameter):
     @override
     def as_assign(self, /) -> cst.Assign:
         return parse_assign(
-            cst.Name(self.name),
+            cst.Name(self.name_private),
             parse_call(
                 self.import_alias,
-                parse_str(self.name),
+                parse_str(self.name_private),
                 **({"default": default} if (default := self.default) else {}),
             ),
         )

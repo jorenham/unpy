@@ -335,7 +335,7 @@ potential goals of `unpy`:
     - `typing`
         - [ ] `typing.Any` => `typing_extensions.Any` if subclassed (disallowed for now)
 - Generated `TypeVar`s
-    - [ ] Prefix extracted `TypeVar`s names with `_` (jorenham/unpy#38)
+    - [x] Prefix extracted `TypeVar`s names with `_` (jorenham/unpy#38)
     - [x] De-duplicate extracted typevar-likes with same name if equivalent
     - [ ] Rename extracted typevar-likes with same name if not equivalent
 

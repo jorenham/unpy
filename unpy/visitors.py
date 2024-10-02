@@ -34,7 +34,7 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
 
     METADATA_DEPENDENCIES = (cst_meta.ScopeProvider,)
 
-    _global_scope: cst_meta.Scope
+    _global_scope: cst_meta.GlobalScope
 
     _stack_scope: Final[collections.deque[str]]
     _stack_attr: Final[collections.deque[cst.Attribute]]
@@ -49,8 +49,9 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     # {import_fqn: alias, ...}
     _import_cache: dict[str, str | None]
 
-    # {(generic_name, param_name), param), ...]
+    # {(generic_name, param_name): param, ...]
     type_params: dict[tuple[str, str], uncst.TypeParameter]
+    # {generic_name: [param, ...], ...]
     type_params_grouped: dict[str, list[uncst.TypeParameter]]
 
     # {alias_name: [type_param, ...]}
@@ -427,7 +428,7 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     def visit_Module(self, /, node: cst.Module) -> None:
         scope = self.get_metadata(cst_meta.ScopeProvider, node)
         assert isinstance(scope, cst_meta.Scope)
-        self._global_scope = scope
+        self._global_scope = scope.globals
 
     @override
     def visit_Import(self, /, node: cst.Import) -> None:
