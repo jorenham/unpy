@@ -584,14 +584,10 @@ class StubTransformer(cst.CSTTransformer):
         original_node: cst.ClassDef,
         updated_node: cst.ClassDef,
     ) -> cst.ClassDef | cst.FlattenSentinel[cst.ClassDef | cst.BaseStatement]:
+        target = self.target
         stack = self._stack_scope
+
         name = stack.pop()
-
-        if not (tpars := original_node.type_parameters):
-            return updated_node
-        if self.target >= (3, 12) and not any(tpar.default for tpar in tpars.params):
-            return updated_node
-
         qualname = ".".join((*stack, name))
         assert qualname == updated_node.name.value or len(stack)
 
@@ -599,12 +595,35 @@ class StubTransformer(cst.CSTTransformer):
         base_list = visitor.class_bases[qualname]
         base_set = set(base_list)
 
+        # backport `enum.StrEnum` as `builtins.str & enum.Enum`
+        if (
+            target < (3, 11)
+            and (name_str_enum := visitor.imported_as("enum", "StrEnum"))
+            and name_str_enum in base_set
+        ):
+            if original_node.type_parameters:
+                raise NotImplementedError("StrEnum with type parameters")
+
+            name_str = visitor.imported_as("builtins", "str") or "str"
+            new_bases = list(updated_node.bases)
+            new_bases.insert(
+                base_list.index(name_str_enum),
+                cst.Arg(uncst.parse_name(name_str)),
+            )
+
+            return updated_node.with_changes(bases=new_bases)
+
+        if not (tpars := original_node.type_parameters):
+            return updated_node
+        if target >= (3, 12) and not any(tpar.default for tpar in tpars.params):
+            return updated_node
+
         name_protocol = visitor.imported_from_typing_as(_NAME_PROTOCOL)
         name_generic = visitor.imported_from_typing_as(_NAME_GENERIC)
         assert name_generic not in base_set
 
         subscript_elements = [
-            tpar.as_subscript_element(target=self.target)
+            tpar.as_subscript_element(target=target)
             for tpar in visitor.type_params_grouped[qualname]
         ]
 
