@@ -59,6 +59,8 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     # {class_qualname: [class_qualname, ...]}
     class_bases: dict[str, list[str]]
 
+    nested_classvar_final: bool
+
     def __init__(self, /) -> None:
         self._stack_scope = collections.deque()
         self._stack_attr = collections.deque()
@@ -80,6 +82,8 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
 
         # TODO(jorenham): refactor this as metadata
         self.class_bases = {}
+
+        self.nested_classvar_final = False
 
         super().__init__()
 
@@ -517,16 +521,43 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     def visit_AnnAssign(self, node: cst.AnnAssign) -> None:
         self.__check_assign_imported(node)
 
+        ann = node.annotation.annotation
+
         if (
             node.value
             and isinstance(node.target, cst.Name)
-            and isinstance(ann := node.annotation.annotation, cst.Name | cst.Attribute)
+            and isinstance(ann, cst.Name | cst.Attribute)
             and (type_alias_name := self.imported_from_typing_as("TypeAlias"))
             and uncst.get_name_strict(ann) == type_alias_name
         ):
             # this is a legacy `typing[_extensions].TypeAlias`
             # TODO(jorenham): either warn user & register, or just disallow this
             _check_annotation_expr(node.value, f"{node.target.value}")
+
+        # check for nested `ClassVar` and `Final`
+        if (
+            not self.nested_classvar_final
+            and isinstance(ann, cst.Subscript)
+            and isinstance(ann.value, cst.Name | cst.Attribute)
+            and len(ann.slice) == 1
+            and isinstance(index := ann.slice[0].slice, cst.Index)
+            and isinstance(ann_sub := index.value, cst.Subscript)
+            and isinstance(ann_sub.value, cst.Name | cst.Attribute)
+            and len(ann_sub.slice) == 1
+            and isinstance(ann.slice[0].slice, cst.Index)
+            and (name_classvar := self.imported_from_typing_as("ClassVar"))
+            and (name_final := self.imported_from_typing_as("Final"))
+        ):
+            # this is something of the form `_: _[_[_]] = ...`
+            name_outer = uncst.get_name_strict(ann.value)
+            name_inner = uncst.get_name_strict(ann_sub.value)
+            names_typing = {name_classvar, name_final}
+            if (
+                name_outer != name_inner
+                and name_outer in names_typing
+                and name_inner in names_typing
+            ):
+                self.nested_classvar_final = True
 
     @override
     def visit_AssignTarget(self, node: cst.AssignTarget) -> None:
