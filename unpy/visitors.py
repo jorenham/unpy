@@ -373,6 +373,52 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
         assert self._in_import
         self._in_import = False
 
+    def __check_assign_imported(self, node: cst.Assign | cst.AnnAssign, /) -> None:
+        if not isinstance(node.value, cst.Name | cst.Attribute):
+            return
+        if (name := uncst.get_name_strict(node.value)) not in self.imports_by_alias:
+            return
+
+        # TODO(jorenham): support multiple import aliases
+        # TODO(jorenham): support creating an import alias by assignment
+        fqn = self.imports_by_alias[name]
+        raise NotImplementedError(f"multiple import aliases for {fqn!r}")
+
+    @override
+    def on_visit(self, /, node: cst.CSTNode) -> bool:
+        if isinstance(node, cst.BaseSmallStatement):
+            if isinstance(
+                node,
+                cst.Del
+                | cst.Pass
+                | cst.Break
+                | cst.Continue
+                | cst.Return
+                | cst.Raise
+                | cst.Assert
+                | cst.Global
+                | cst.Nonlocal,
+            ):
+                keyword = type(node).__name__.lower()
+                raise StubError(f"{keyword!r} statements are useless in stubs")
+        elif isinstance(node, cst.BaseCompoundStatement):
+            if isinstance(
+                node,
+                cst.Try | cst.TryStar | cst.With | cst.For | cst.While | cst.Match,
+            ):
+                keyword = type(node).__name__.lower()
+                raise StubError(f"{keyword!r} statements are useless in stubs")
+        elif isinstance(node, cst.BaseExpression):
+            if isinstance(node, cst.BooleanOperation):
+                raise StubError("boolean operations are useless in stubs")
+            if isinstance(node, cst.FormattedString):
+                raise StubError("f-strings are useless in stubs")
+            if isinstance(node, cst.Lambda | cst.Await | cst.Yield):
+                keyword = type(node).__name__.lower()
+                raise StubError(f"{keyword!r} is an invalid expression")
+
+        return super().on_visit(node)
+
     @override
     def visit_Module(self, /, node: cst.Module) -> None:
         scope = self.get_metadata(cst_meta.ScopeProvider, node)
@@ -439,17 +485,6 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     @override
     def visit_Annotation(self, /, node: cst.Annotation) -> None:
         _check_annotation_expr(node.annotation)
-
-    def __check_assign_imported(self, node: cst.Assign | cst.AnnAssign, /) -> None:
-        if not isinstance(node.value, cst.Name | cst.Attribute):
-            return
-        if (name := uncst.get_name_strict(node.value)) not in self.imports_by_alias:
-            return
-
-        # TODO(jorenham): support multiple import aliases
-        # TODO(jorenham): support creating an import alias by assignment
-        fqn = self.imports_by_alias[name]
-        raise NotImplementedError(f"multiple import aliases for {fqn!r}")
 
     @override
     def visit_Assign(self, node: cst.Assign) -> None:
@@ -593,38 +628,3 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
         # https://github.com/jorenham/unpy/issues/46
 
         _ = self._stack_scope.pop()
-
-    @override
-    def on_visit(self, /, node: cst.CSTNode) -> bool:
-        if isinstance(node, cst.BaseSmallStatement):
-            if isinstance(
-                node,
-                cst.Del
-                | cst.Pass
-                | cst.Break
-                | cst.Continue
-                | cst.Return
-                | cst.Raise
-                | cst.Assert
-                | cst.Global
-                | cst.Nonlocal,
-            ):
-                keyword = type(node).__name__.lower()
-                raise StubError(f"{keyword!r} statements are useless in stubs")
-        elif isinstance(node, cst.BaseCompoundStatement):
-            if isinstance(
-                node,
-                cst.Try | cst.TryStar | cst.With | cst.For | cst.While | cst.Match,
-            ):
-                keyword = type(node).__name__.lower()
-                raise StubError(f"{keyword!r} statements are useless in stubs")
-        elif isinstance(node, cst.BaseExpression):
-            if isinstance(node, cst.BooleanOperation):
-                raise StubError("boolean operations are useless in stubs")
-            if isinstance(node, cst.FormattedString):
-                raise StubError("f-strings are useless in stubs")
-            if isinstance(node, cst.Lambda | cst.Await | cst.Yield):
-                keyword = type(node).__name__.lower()
-                raise StubError(f"{keyword!r} is an invalid expression")
-
-        return super().on_visit(node)
