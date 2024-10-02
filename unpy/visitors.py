@@ -525,16 +525,20 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
 
     @override
     def visit_FunctionDef(self, /, node: cst.FunctionDef) -> None:
-        self._stack_scope.append(node.name.value)
+        stack = self._stack_scope
+        stack.append(name := node.name.value)
+
+        if len(stack) == 1 and name in {"__getattr__", "__dir__"}:
+            raise StubError(f"module-level {name}() cannot be used in a stub")
 
         assert isinstance(node.body, cst.SimpleStatementSuite | cst.IndentedBlock)
         if len(node.body.body) != 1 or not isinstance(node.body.body[0], cst.Ellipsis):
             error = StubError("function body must contain only `...`")
-            qualname = ".".join(self._stack_scope)
+            qualname = ".".join(stack)
             error.add_note(qualname)
 
         if tpars := node.type_parameters:
-            self._register_type_params(self._stack_scope[0], tpars)
+            self._register_type_params(stack[0], tpars)
 
     @override
     def leave_FunctionDef(self, /, original_node: cst.FunctionDef) -> None:
