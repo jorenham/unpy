@@ -544,3 +544,38 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
         # https://github.com/jorenham/unpy/issues/46
 
         _ = self._stack_scope.pop()
+
+    @override
+    def on_visit(self, /, node: cst.CSTNode) -> bool:
+        if isinstance(node, cst.BaseSmallStatement):
+            if isinstance(
+                node,
+                cst.Del
+                | cst.Pass
+                | cst.Break
+                | cst.Continue
+                | cst.Return
+                | cst.Raise
+                | cst.Assert
+                | cst.Global
+                | cst.Nonlocal,
+            ):
+                keyword = type(node).__name__.lower()
+                raise StubError(f"{keyword!r} statements are useless in stubs")
+        elif isinstance(node, cst.BaseCompoundStatement):
+            if isinstance(
+                node,
+                cst.Try | cst.TryStar | cst.With | cst.For | cst.While | cst.Match,
+            ):
+                keyword = type(node).__name__.lower()
+                raise StubError(f"{keyword!r} statements are useless in stubs")
+        elif isinstance(node, cst.BaseExpression):
+            if isinstance(node, cst.BooleanOperation):
+                raise StubError("boolean operations are useless in stubs")
+            if isinstance(node, cst.FormattedString):
+                raise StubError("f-strings are useless in stubs")
+            if isinstance(node, cst.Lambda | cst.Await | cst.Yield):
+                keyword = type(node).__name__.lower()
+                raise StubError(f"{keyword!r} is an invalid expression")
+
+        return super().on_visit(node)

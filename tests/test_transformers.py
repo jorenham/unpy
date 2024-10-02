@@ -31,7 +31,6 @@ def test_comments(source: str) -> None:
         "__version__: str = '3.14'\n",
         "def concat(*args: str) -> str: ...\n",
         "class C:\n    def f(self, /) -> None: ...\n",
-        "raise NotImplementedError\n",
     ],
 )
 def test_already_compatible(source: str) -> None:
