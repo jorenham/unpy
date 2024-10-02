@@ -1,34 +1,25 @@
 import collections
-import functools
 from typing import Final, override
 
 import libcst as cst
-from libcst.metadata import Scope, ScopeProvider
+import libcst.metadata as cst_meta
 
 import unpy._cst as uncst
 
 __all__ = ("StubVisitor",)
 
 _MODULE_BUILTINS: Final = "builtins"
-_MODULE_PATHLIB: Final = "pathlib"
 _MODULE_TP: Final = "typing"
 _MODULE_TPX: Final = "typing_extensions"
 
-_ILLEGAL_BASES: Final = (
-    (_MODULE_BUILTINS, "BaseExceptionGroup"),
-    (_MODULE_BUILTINS, "ExceptionGroup"),
-    (_MODULE_BUILTINS, "_IncompleteInputError"),
-    (_MODULE_BUILTINS, "PythonFinalizationError"),
-    (_MODULE_BUILTINS, "EncodingWarning"),
-    (_MODULE_PATHLIB, "Path"),
-    (_MODULE_TP, "Any"),
-    (_MODULE_TPX, "Any"),
-)
+
+class StubError(TypeError):
+    pass
 
 
-def __check_annotation_expr(node: cst.BaseExpression, /) -> None:
+def _check_annotation_expr(node: cst.BaseExpression, /) -> None:
     if isinstance(node, cst.BaseString):
-        raise TypeError("quoted annotations should not be included in stubs")
+        raise StubError("quoted annotations should not be included in stubs")
 
 
 class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
@@ -37,9 +28,9 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     classes, and type-aliases.
     """
 
-    METADATA_DEPENDENCIES = (ScopeProvider,)
+    METADATA_DEPENDENCIES = (cst_meta.ScopeProvider,)
 
-    _global_scope: Scope
+    _global_scope: cst_meta.Scope
 
     _stack_scope: Final[collections.deque[str]]
     _stack_attr: Final[collections.deque[cst.Attribute]]
@@ -255,7 +246,7 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
         default = tpar.default
 
         if default:
-            __check_annotation_expr(default)
+            _check_annotation_expr(default)
 
         name_any = self.imported_from_typing_as("Any")
         name_object = self.imported_as(_MODULE_BUILTINS, "object")
@@ -312,7 +303,7 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
             constraints = tuple(cons)
             bound = None
         else:
-            __check_annotation_expr(bound)
+            _check_annotation_expr(bound)
 
         if _default_any and bound is not None:
             # if `default=Any`, replace it the value of `bound` (`Any` is horrible)
@@ -375,8 +366,8 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
 
     @override
     def visit_Module(self, /, node: cst.Module) -> None:
-        scope = self.get_metadata(ScopeProvider, node)
-        assert isinstance(scope, Scope)
+        scope = self.get_metadata(cst_meta.ScopeProvider, node)
+        assert isinstance(scope, cst_meta.Scope)
         self._global_scope = scope
 
     @override
@@ -438,7 +429,7 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
 
     @override
     def visit_Annotation(self, /, node: cst.Annotation) -> None:
-        __check_annotation_expr(node.annotation)
+        _check_annotation_expr(node.annotation)
 
     def __check_assign_imported(self, node: cst.Assign | cst.AnnAssign, /) -> None:
         if not isinstance(node.value, cst.Name | cst.Attribute):
@@ -491,6 +482,12 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     def visit_FunctionDef(self, /, node: cst.FunctionDef) -> None:
         self._stack_scope.append(node.name.value)
 
+        assert isinstance(node.body, cst.SimpleStatementSuite | cst.IndentedBlock)
+        if len(node.body.body) != 1 or not isinstance(node.body.body[0], cst.Ellipsis):
+            error = StubError("function body must contain only `...`")
+            qualname = ".".join(self._stack_scope)
+            error.add_note(qualname)
+
         if tpars := node.type_parameters:
             self._register_type_params(self._stack_scope[0], tpars)
 
@@ -500,14 +497,6 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
         # https://github.com/jorenham/unpy/issues/46
 
         _ = self._stack_scope.pop()
-
-    @functools.cached_property
-    def _illegal_bases(self, /) -> frozenset[str]:
-        return frozenset({
-            base_name
-            for module, name in _ILLEGAL_BASES
-            if (base_name := self.imported_as(module, name))
-        })
 
     @override
     def visit_ClassDef(self, /, node: cst.ClassDef) -> None:
@@ -545,15 +534,6 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
 
             # TODO: figure out the FQN if not a global name (i.e. locally scoped)
             bases.append(basename)
-
-        base_set = set(bases)
-        if base_set and (illegal := base_set & self._illegal_bases):
-            if len(illegal) == 1:
-                raise NotImplementedError(f"{illegal.pop()!r} as base class")
-            raise ExceptionGroup(
-                "unsupported base classes",
-                [NotImplementedError(f"{base!r} as base class") for base in illegal],
-            )
 
         if tpars := node.type_parameters:
             self._register_type_params(stack[0], tpars, infer_variance=True)
