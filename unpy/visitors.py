@@ -5,6 +5,7 @@ import libcst as cst
 import libcst.metadata as cst_meta
 
 import unpy._cst as uncst
+from unpy.exceptions import StubError
 
 __all__ = ("StubVisitor",)
 
@@ -13,13 +14,16 @@ _MODULE_TP: Final = "typing"
 _MODULE_TPX: Final = "typing_extensions"
 
 
-class StubError(TypeError):
-    pass
-
-
-def _check_annotation_expr(node: cst.BaseExpression, /) -> None:
+def _check_annotation_expr(
+    node: cst.BaseExpression,
+    /,
+    name: str | None = None,
+) -> None:
     if isinstance(node, cst.BaseString):
-        raise StubError("quoted annotations should not be included in stubs")
+        error = StubError("quoted annotations should not be included in stubs")
+        if name:
+            error.add_note(f"in {name!r}")
+        raise error
 
 
 class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
@@ -195,7 +199,12 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
         module: str | None = None,
         alias: str | None = None,
     ) -> str:
+        # this `str.removesuffix` avoids a double `.` in case of `from . import name`
         fqn = f"{module.removesuffix(".")}.{name}" if module else name
+
+        if fqn.startswith("__future__"):
+            raise StubError("__future__ imports are useless in stubs")
+
         alias = alias or name
 
         if self.imports.setdefault(fqn, alias) != alias:
@@ -446,9 +455,43 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
     def visit_Assign(self, node: cst.Assign) -> None:
         self.__check_assign_imported(node)
 
+        # TODO(jorenham): enforce len(node.targets) == 1
+
+        if (
+            len(node.targets) == 1
+            and isinstance(target := node.targets[0].target, cst.Name)
+            and isinstance(node.value, cst.Call)
+            # typevar-likes can only "contain" annotations if they have >1 [kw]args
+            and len(node.value.args) > 1
+            and isinstance(node.value.func, cst.Name | cst.Attribute)
+            and isinstance(strname := node.value.args[0].value, cst.SimpleString)
+            and strname.raw_value == target.value
+        ):
+            # this is (probably) a legacy typevar-like (or a manual `TypeAliasType`)
+            # TODO(jorenham): either warn user & register, or just disallow this
+
+            fname = ""  # set later if needed
+            for arg in node.value.args[1:]:
+                # annotations can only occur in the positional args and the
+                # `bound` or `default` kwargs
+                if arg.keyword is None or arg.keyword.value in {"bound", "default"}:
+                    fname = fname or uncst.get_name_strict(node.value.func)
+                    _check_annotation_expr(arg.value, f"{target.value} = {fname}(...)")
+
     @override
     def visit_AnnAssign(self, node: cst.AnnAssign) -> None:
         self.__check_assign_imported(node)
+
+        if (
+            node.value
+            and isinstance(node.target, cst.Name)
+            and isinstance(ann := node.annotation.annotation, cst.Name | cst.Attribute)
+            and (type_alias_name := self.imported_from_typing_as("TypeAlias"))
+            and uncst.get_name_strict(ann) == type_alias_name
+        ):
+            # this is a legacy `typing[_extensions].TypeAlias`
+            # TODO(jorenham): either warn user & register, or just disallow this
+            _check_annotation_expr(node.value, f"{node.target.value}")
 
     @override
     def visit_AssignTarget(self, node: cst.AssignTarget) -> None:
@@ -469,6 +512,8 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
 
         name = node.name.value
         assert name not in self.type_aliases
+
+        _check_annotation_expr(node.value, f"type {name}")
 
         if tpars := node.type_parameters:
             self.type_aliases[name] = self._register_type_params(name, tpars)
