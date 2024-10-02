@@ -327,3 +327,31 @@ def test_baseclasses_single() -> None:
 
 # type params
 # TODO
+
+# nested ClassVar and Final
+def test_nested_classvar_final() -> None:
+    visitor_tn = _visit(
+        "from typing import ClassVar, Final",
+        "class C:",
+        "    a: ClassVar[int] = 0",
+        "    b: Final[int]",
+    )
+    visitor_tp = _visit(
+        "from typing import ClassVar, Final",
+        "class C:",
+        "    a: ClassVar[Final[int]] = 1",
+    )
+    visitor_tp_inv = _visit(
+        "from typing import ClassVar, Final",
+        "class C:",
+        "    a: Final[ClassVar[int]] = -1",
+    )
+    visitor_tp_indirect = _visit(
+        "import typing as tp",
+        "class C:",
+        "    a: tp.ClassVar[tp.Final[int]] = 1",
+    )
+    assert not visitor_tn.nested_classvar_final
+    assert visitor_tp.nested_classvar_final
+    assert visitor_tp_inv.nested_classvar_final
+    assert visitor_tp_indirect.nested_classvar_final

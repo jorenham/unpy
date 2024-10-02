@@ -298,7 +298,7 @@ potential goals of `unpy`:
         - [x] `re.PatternError` => `re.error`
     - Typing
         - [x] `types.CapsuleType` => `typing_extensions.CapsuleType`
-        - [ ] `typing.{ClassVar,Final}` => `typing_extensions.{ClassVar,Final}` when
+        - [x] `typing.{ClassVar,Final}` => `typing_extensions.{ClassVar,Final}` when
         nested (python/cpython#89547)
 - Python 3.12 => 3.11
     - [PEP 698][PEP698]
