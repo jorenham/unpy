@@ -378,14 +378,17 @@ class StubTransformer(cst.CSTTransformer):
                 lpar=updated_node.lpar,
                 rpar=updated_node.rpar,
             )
-        if (
-            not name.startswith("_")
-            and (scope := ".".join(self._stack_scope))
-            and (scope, name) in self.visitor.type_params
-        ):
-            # prefix extracted typevar-like names with `_`
-            updated_node = updated_node.with_changes(value=f"_{name}")
-            self._renamed_typevar_refs.setdefault(original_node, updated_node)
+
+        if not (stack := list(self._stack_scope)) or name.startswith("_"):
+            return updated_node
+
+        for lvl in range(len(stack), 0, -1):
+            scope = ".".join(stack[:lvl])
+            if (scope, name) in self.visitor.type_params:
+                # prefix extracted typevar-like names with `_`
+                updated_node = updated_node.with_changes(value=f"_{name}")
+                self._renamed_typevar_refs.setdefault(original_node, updated_node)
+                break
 
         return updated_node
 
