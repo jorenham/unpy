@@ -633,3 +633,67 @@ def test_subclass_builtins_object_alias():
     """)
     with pytest.raises(NotImplementedError):
         transform_source(pyi_direct)
+
+
+def test_nested_ClassVar_Final_TN():
+    pyi_in = pyi_expect = _src("""
+    from typing import ClassVar, Final
+
+    class C:
+        a: ClassVar[int] = 0
+        b: Final[int]
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect
+
+
+def test_nested_ClassVar_Final_TP():
+    pyi_in = _src("""
+    from typing import ClassVar, Final
+
+    class C:
+        a: ClassVar[Final[int]] = 1
+    """)
+    pyi_expect = _src("""
+    from typing_extensions import ClassVar, Final
+
+    class C:
+        a: ClassVar[Final[int]] = 1
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect
+
+
+def test_nested_ClassVar_Final_TP_inv():
+    pyi_in = _src("""
+    from typing import ClassVar, Final
+
+    class C:
+        a: Final[ClassVar[int]] = -1
+    """)
+    pyi_expect = _src("""
+    from typing_extensions import ClassVar, Final
+
+    class C:
+        a: Final[ClassVar[int]] = -1
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect
+
+
+def test_nested_ClassVar_Final_TP_indirect():
+    pyi_in = _src("""
+    import typing as tp
+
+    class C:
+        a: tp.ClassVar[tp.Final[int]] = 1
+    """)
+    pyi_expect = _src("""
+    import typing as tp
+    from typing_extensions import ClassVar, Final
+
+    class C:
+        a: ClassVar[Final[int]] = 1
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect

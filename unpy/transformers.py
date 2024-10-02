@@ -251,6 +251,7 @@ class StubTransformer(cst.CSTTransformer):
 
     def __collect_imports_backport(self, /) -> None:
         # collect the imports that should replaced with a `typing_extensions` backport
+        target = self.target
         visitor = self.visitor
 
         for fqn, alias in visitor.imports.items():
@@ -271,13 +272,25 @@ class StubTransformer(cst.CSTTransformer):
             if (
                 (backports := BACKPORTS.get(module))
                 and name in backports
-                and self.target < backports[name][2]
+                and target < backports[name][2]
             ):
                 new_module, new_name, _ = backports[name]
 
                 new_ref = self._require_import(new_module, new_name, has_backport=False)
                 if ref != new_ref:
                     self._renames[ref] = new_ref
+
+        if visitor.nested_classvar_final and target < (3, 13):
+            # nested `ClassVar` and `Final` require Python >= 3.13
+            for name in ["ClassVar", "Final"]:
+                name_old = visitor.imported_from_typing_as(name)
+                assert name_old
+
+                self._discard_import(_MODULE_TP, name)
+                name_new = self._require_import(_MODULE_TPX, name)
+
+                if name_old != name_new:
+                    self._renames[name_old] = name_new
 
     def __collect_imports_type_aliases(self, /) -> None:
         # collect the imports for `TypeAlias` and/or `TypeAliasType`
