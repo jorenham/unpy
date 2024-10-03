@@ -23,25 +23,29 @@ DEFAULT_GLOBALS: Final[dict[str, type | object]] = {
 }
 
 UNSUPPORTED_NAMES: Final = {
-    "asyncio": {
-        "TaskGroup": (3, 11),
-    },
-    "builtins": {
-        "_IncompleteInputError": (3, 13),
-        "PythonFinalizationError": (3, 13),
-        "BaseExceptionGroup": (3, 11),
-        "ExceptionGroup": (3, 11),
-        "EncodingWarning": (3, 10),
-        "reveal_locals": (4, 0),
-        "reveal_type": (4, 0),
-    },
+    "ast.TryStar": (3, 11),
+    "ast.TypeAlias": (3, 12),
+    "ast.TypeVar": (3, 12),
+    "ast.TypeVarTuple": (3, 12),
+    "ast.ParamSpec": (3, 12),
+    "ast.PyCF_OPTIMIZED_AST": (3, 13),
+    "asyncio.TaskGroup": (3, 11),
+    "builtins._IncompleteInputError": (3, 13),
+    "builtins.PythonFinalizationError": (3, 13),
+    "builtins.BaseExceptionGroup": (3, 11),
+    "builtins.ExceptionGroup": (3, 11),
+    "builtins.EncodingWarning": (3, 10),
+    "builtins.reveal_locals": (4, 0),
+    "builtins.reveal_type": (4, 0),
+    "typing.ByteString": (4, 0),
+    "typing.Text": (4, 0),
+    "typing.cast": (4, 0),
+    "typing.reveal_type": (4, 0),
 }
 UNSUPPORTED_BASES: Final = {
     "builtins.object": (4, 0),
     "inspect.BufferFlags": (3, 12),
     "pathlib.Path": (3, 12),
-    "typing.Any": (3, 11),
-    "typing_extensions.Any": (3, 11),
 }
 
 
@@ -143,8 +147,8 @@ _BACKPORTS_DEPRECATED: Final = {
             ]
         },
         # contextlib
-        "ContextManager": ("contextlib", "ContextManager"),
-        "AsyncContextManager": ("contextlib", "AsyncContextManager"),
+        "ContextManager": ("contextlib", "AbstractContextManager"),
+        "AsyncContextManager": ("contextlib", "AbstractAsyncContextManager"),
         # re
         "Pattern": ("re", "Pattern"),
         "Match": ("re", "Match"),

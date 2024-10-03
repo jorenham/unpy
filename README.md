@@ -288,61 +288,61 @@ potential goals of `unpy`:
 
 - Python 3.13 => 3.12
     - [PEP 742][PEP742]
-        - [x] `typing.TypeIs` => `typing_extensions.TypeIs`
+        - `typing.TypeIs` => `typing_extensions.TypeIs`
     - [PEP 705][PEP705]
-        - [x] `typing.ReadOnly` => `typing_extensions.ReadOnly`
+        - `typing.ReadOnly` => `typing_extensions.ReadOnly`
     - [PEP 702][PEP702]
-        - [x] `warnings.deprecated` => `typing_extensions.deprecated`
+        - `warnings.deprecated` => `typing_extensions.deprecated`
     - [PEP 696][PEP696]
-        - [x] Backport [PEP 695][PEP695] type signatures with a default
-        - [x] `typing.NoDefault` => `typing_extensions.NoDefault`
+        - Backport [PEP 695][PEP695] type signatures with a default
+        - `typing.NoDefault` => `typing_extensions.NoDefault`
     - Exceptions
-        - [x] `asyncio.QueueShutDown` => `builtins.Exception`
-        - [x] `pathlib.UnsupportedOperation` => `builtins.NotImplementedError`
-        - [x] `queue.ShutDown` => `builtins.Exception`
-        - [x] `re.PatternError` => `re.error`
+        - `asyncio.QueueShutDown` => `builtins.Exception`
+        - `pathlib.UnsupportedOperation` => `builtins.NotImplementedError`
+        - `queue.ShutDown` => `builtins.Exception`
+        - `re.PatternError` => `re.error`
     - Typing
-        - [x] `types.CapsuleType` => `typing_extensions.CapsuleType`
-        - [x] `typing.{ClassVar,Final}` => `typing_extensions.{ClassVar,Final}` when
-        nested (python/cpython#89547)
+        - `types.CapsuleType` => `typing_extensions.CapsuleType`
+        - `typing.{ClassVar,Final}` => `typing_extensions.{ClassVar,Final}` when
+        nested
 - Python 3.12 => 3.11
     - [PEP 698][PEP698]
-        - [x] `typing.override` => `typing_extensions.override`
+        - `typing.override` => `typing_extensions.override`
     - [PEP 695][PEP695]
-        - [x] Backport `type _` aliases
-        - [x] Backport generic functions
-        - [x] Backport generic classes and protocols
-        - [x] `typing.TypeAliasType` => `typing_extensions.TypeAliasType`
+        - Backport `type _` aliases
+        - Backport generic functions
+        - Backport generic classes and protocols
+        - `typing.TypeAliasType` => `typing_extensions.TypeAliasType`
     - [PEP 688][PEP688]
-        - [x] `collections.abc.Buffer` => `typing_extensions.Buffer`
-        - [x] `inspect.BufferFlags` => `int`
+        - `collections.abc.Buffer` => `typing_extensions.Buffer`
+        - `inspect.BufferFlags` => `int`
 - Python 3.11 => 3.10
     - [PEP 681][PEP681]
-        - [x] `typing.dataclass_transform` => `typing_extensions.dataclass_transform`
+        - `typing.dataclass_transform` => `typing_extensions.dataclass_transform`
     - [PEP 675][PEP675]
-        - [x] `typing.LiteralString` => `typing_extensions.LiteralString`
+        - `typing.LiteralString` => `typing_extensions.LiteralString`
     - [PEP 673][PEP673]
-        - [x] `typing.Self` => `typing_extensions.Self`
+        - `typing.Self` => `typing_extensions.Self`
     - [PEP 655][PEP655]
-        - [x] `typing.[Not]Required` => `typing_extensions.[Not]Required`
+        - `typing.[Not]Required` => `typing_extensions.[Not]Required`
     - [PEP 654][PEP654]
-        - [ ] `builtins.BaseExceptionGroup` => ?  (disallowed for now)
-        - [ ] `builtins.ExceptionGroup` => ?  (disallowed for now)
+        - ~`builtins.BaseExceptionGroup`~
+        - ~`builtins.ExceptionGroup`~
     - [PEP 646][PEP646]
-        - [x] `typing.TypeVarTuple` => `typing_extensions.TypeVarTuple`
-        - [x] `typing.Unpack` => `typing_extensions.Unpack`
-        - [x] `*Ts` => `typing_extensions.Unpack[Ts]` with `Ts` a `TypeVarTuple`
+        - `typing.TypeVarTuple` => `typing_extensions.TypeVarTuple`
+        - `typing.Unpack` => `typing_extensions.Unpack`
+        - `*Ts` => `typing_extensions.Unpack[Ts]` with `Ts: TypeVarTuple`
     - `asyncio`
-        - [ ] `asyncio.TaskGroup` => ? (disallowed for now)
+        - ~`asyncio.TaskGroup`~
     - `enum`
-        - [x] `enum.ReprEnum` => `enum.Enum`
-        - [x] `enum.StrEnum` => `str & enum.Enum`
+        - `enum.ReprEnum` => `enum.Enum`
+        - `enum.StrEnum` => `str & enum.Enum`
     - `typing`
-        - [ ] `typing.Any` => `typing_extensions.Any` if subclassed (disallowed for now)
+        - `typing.Any` => `typing_extensions.Any` if subclassed (not recommended)
 - Generated `TypeVar`s
-    - [x] Prefix extracted `TypeVar`s names with `_` (jorenham/unpy#38)
     - [x] De-duplicate extracted typevar-likes with same name if equivalent
-    - [ ] Rename extracted typevar-likes with same name if not equivalent
+    - [x] Prefix the names of extracted typevar-likes with `_`
+    - [ ] Rename incompatible typevar-likes with the same name (jorenham/unpy#86)
 
 ### Simplification and refactoring
 
