@@ -556,6 +556,37 @@ def test_import_capsule_type():
     assert pyi_out == pyi_expect
 
 
+def test_import_baseclass_Any():
+    pyi_in = _src("""
+    from typing import Any
+
+    class Evil(Any): ...
+    """)
+    pyi_expect = _src("""
+    from typing_extensions import Any
+
+    class Evil(Any): ...
+    """)
+    pyi_out = transform_source(pyi_in)
+    assert pyi_out == pyi_expect
+
+
+# there's no need to test the other `unpy._strlib._UNSUPPORTED_NAMES` as well
+@pytest.mark.parametrize(
+    "source",
+    [
+        "from typing import Text",
+        "from typing import Text as _Text",
+        "import typing.Text",
+        "import typing.Text as _Text",
+        "import typing\n\nA: typing.Text = ''",
+    ],
+)
+def test_import_unsupported(source: str):
+    with pytest.raises(NotImplementedError):
+        transform_source(source)
+
+
 def test_backport_exceptions():
     pyi_in = _src("""
     import re

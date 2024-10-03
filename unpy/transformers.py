@@ -13,8 +13,9 @@ else:
 import libcst as cst
 
 import unpy._cst as uncst
-from unpy._stdlib import BACKPORTS, UNSUPPORTED_BASES
+from unpy._stdlib import BACKPORTS, UNSUPPORTED_BASES, UNSUPPORTED_NAMES
 from unpy._types import PythonVersion
+from unpy.exceptions import StubError
 from unpy.visitors import StubVisitor
 
 __all__ = ("StubTransformer",)
@@ -126,7 +127,8 @@ class StubTransformer(cst.CSTTransformer):
         self._renamed_typevar_refs = {}
         self._type_alias_alignment = {}
 
-        self.__check_base_classes()
+        self.__check_supported_names()
+        self.__check_supported_bases()
         self.__collect_imports_typevars()
         self.__collect_imports_backport()
         self.__collect_imports_generic()
@@ -190,39 +192,93 @@ class StubTransformer(cst.CSTTransformer):
 
         return None
 
-    def __check_base_classes(self, /) -> None:
+    def _backport_import(
+        self,
+        module_old: str,
+        name_old: str,
+        /,
+        module_new: str = _MODULE_TPX,
+        name_new: str | None = None,
+    ) -> str:
+        name_new = name_new or name_old
+        assert (module_old, name_old) != (module_new, name_new)
+
+        alias_old = self._discard_import(module_old, name_old)
+        alias_new = self._require_import(module_new, name_new, has_backport=False)
+
+        if alias_old and alias_old != alias_new:
+            self._renames[alias_old] = alias_new
+
+        return alias_new
+
+    def __check_supported_names(self, /) -> None:
+        # raise for unsupported names
+        target = self.target
+        visitor = self.visitor
+
+        names = set(visitor.imports) | {
+            f"{module}.{name}" if name else module
+            for name, module in visitor.imports_by_ref.values()
+        }
+        unsupported = {name for name, req in UNSUPPORTED_NAMES.items() if target < req}
+
+        if illegal := names & unsupported:
+            # TODO(jorenham): on error; report precise error location(s), possibly with
+            # an `ExceptionGroup`
+            if len(illegal) == 1:
+                raise NotImplementedError(f"unsupported name: {illegal.pop()!r}")
+
+            illegal_repr = ", ".join(sorted(map(repr, illegal)))
+            raise NotImplementedError(f"unsupported names: {illegal_repr}")
+
+    def __check_supported_bases(self, /) -> None:
         # raise for unsupported base classes
         target = self.target
         visitor = self.visitor
 
-        illegal_fqn = {base for base, req in UNSUPPORTED_BASES.items() if target < req}
+        illegal_fqn = {name for name, req in UNSUPPORTED_BASES.items() if target < req}
         illegal_names = {
             alias: base
             for base in illegal_fqn
             if (alias := visitor.imported_as(*base.rsplit(".", 1)))
         }
 
-        for bases in self.visitor.class_bases.values():
-            for base in bases:
-                if base in illegal_names:
-                    raise NotImplementedError(f"{illegal_names[base]!r} as base class")
-                base = base.replace("__builtins__.", "builtins.")  # noqa: PLW2901
-                if (fqn := visitor.imports_by_alias.get(base, base)) in illegal_fqn:
+        base_names = {base for bases in visitor.class_bases.values() for base in bases}
+
+        if (
+            target < (3, 11)
+            and (name_any := visitor.imported_as("typing", "Any"))
+            and name_any in base_names
+        ):
+            # TODO(jorenham): report warning that `Any` is evil
+            self._backport_import("typing", "Any")
+
+        for base in base_names:
+            # TODO(jorenham): on error; report fqn and location of subclass
+
+            if base in illegal_names:
+                raise NotImplementedError(f"{illegal_names[base]!r} as base class")
+
+            base = base.replace("__builtins__.", "builtins.")  # noqa: PLW2901
+            if (fqn := visitor.imports_by_alias.get(base, base)) in illegal_fqn:
+                raise NotImplementedError(f"{fqn!r} as base class")
+
+            if base in visitor.imports_by_ref:
+                module, name = visitor.imports_by_ref[base]
+                fqn = f"{module}.{name}" if name else module
+                if fqn in illegal_fqn:
                     raise NotImplementedError(f"{fqn!r} as base class")
-                if base in visitor.imports_by_ref:
-                    module, name = visitor.imports_by_ref[base]
-                    fqn = f"{module}.{name}" if name else module
-                    if fqn in illegal_fqn:
-                        raise NotImplementedError(f"{fqn!r} as base class")
 
     def __collect_imports_typevars(self, /) -> None:
         # collect the missing imports for the typevar-likes
         target = self.target
         for type_param in self.visitor.type_params.values():
             for module, name in type_param.required_imports(target):
-                self._require_import(module, name, has_backport=module == _MODULE_TP)
-                if module == _MODULE_TPX:
-                    self._discard_import(_MODULE_TP, name)
+                if module == _MODULE_TP:
+                    self._require_import(module, name, has_backport=True)
+                else:
+                    assert module == _MODULE_TPX, module
+                    self._backport_import(_MODULE_TP, name)
 
     def __collection_import_backport_single(self, fqn: str, alias: str, /) -> None:
         if fqn[0] == "." or "." not in fqn or alias == fqn:
@@ -246,10 +302,7 @@ class StubTransformer(cst.CSTTransformer):
 
         module_new, name_new, req = backports[name]
         if target < req:
-            self._discard_import(module, name)
-            self._require_import(module_new, name_new, has_backport=False)
-            if alias != name_new:
-                self._renames[name] = name_new
+            self._backport_import(module, name, module_new, name_new)
 
     def __collect_imports_backport(self, /) -> None:
         # collect the imports that should replaced with a `typing_extensions` backport
@@ -271,28 +324,27 @@ class StubTransformer(cst.CSTTransformer):
 
             assert name.isidentifier(), name
 
+            fqn = f"{module}.{name}"
+            if (req := UNSUPPORTED_NAMES.get(fqn)) and target < req:
+                # TODO(jorenham): report precise error location
+                if req >= (4, 0):
+                    raise NotImplementedError(f"{fqn!r} is unsupported")
+                raise NotImplementedError(f"{fqn!r} requires Python {req[0]}.{req[1]}+")
+
             if (
                 (backports := BACKPORTS.get(module))
                 and name in backports
                 and target < backports[name][2]
             ):
                 new_module, new_name, _ = backports[name]
-
                 new_ref = self._require_import(new_module, new_name, has_backport=False)
                 if ref != new_ref:
                     self._renames[ref] = new_ref
 
+        # nested `ClassVar` and `Final` require Python >= 3.13
         if visitor.nested_classvar_final and target < (3, 13):
-            # nested `ClassVar` and `Final` require Python >= 3.13
-            for name in ["ClassVar", "Final"]:
-                name_old = visitor.imported_from_typing_as(name)
-                assert name_old
-
-                self._discard_import(_MODULE_TP, name)
-                name_new = self._require_import(_MODULE_TPX, name)
-
-                if name_old != name_new:
-                    self._renames[name_old] = name_new
+            for name in ("ClassVar", "Final"):
+                self._backport_import(_MODULE_TP, name)
 
     def __collect_imports_type_aliases(self, /) -> None:
         # collect the imports for `TypeAlias` and/or `TypeAliasType`
@@ -371,8 +423,8 @@ class StubTransformer(cst.CSTTransformer):
     ) -> cst.Attribute | cst.Name:
         if self._stack_attr:
             return updated_node
-        name = updated_node.value
-        if rename := self._renames.get(name):
+
+        if rename := self._renames.get(name := updated_node.value):
             return uncst.parse_name(
                 rename,
                 lpar=updated_node.lpar,
@@ -382,12 +434,14 @@ class StubTransformer(cst.CSTTransformer):
         if not (stack := list(self._stack_scope)) or name.startswith("_"):
             return updated_node
 
+        visitor = self.visitor
+        renamed_typevar_refs = self._renamed_typevar_refs
         for lvl in range(len(stack), 0, -1):
             scope = ".".join(stack[:lvl])
-            if (scope, name) in self.visitor.type_params:
+            if (scope, name) in visitor.type_params:
                 # prefix extracted typevar-like names with `_`
                 updated_node = updated_node.with_changes(value=f"_{name}")
-                self._renamed_typevar_refs.setdefault(original_node, updated_node)
+                renamed_typevar_refs.setdefault(original_node, updated_node)
                 break
 
         return updated_node
@@ -404,15 +458,13 @@ class StubTransformer(cst.CSTTransformer):
         original_node: cst.Attribute,
         updated_node: cst.Attribute,
     ) -> cst.Attribute | cst.Name:
-        stack = self._stack_attr
-        node = stack.pop()
+        node = (stack := self._stack_attr).pop()
         assert node is original_node
 
         if stack or not isinstance(updated_node.value, cst.Name | cst.Attribute):
             return updated_node
 
-        name = uncst.get_name_strict(node)
-        if new_name := self._renames.get(name):
+        if new_name := self._renames.get(name := uncst.get_name_strict(node)):
             assert new_name != name
             return uncst.parse_name(
                 new_name,
@@ -441,7 +493,7 @@ class StubTransformer(cst.CSTTransformer):
                     if name != tpar.name_private:
                         continue
                     if not isinstance(tpar, uncst.TypeVarTuple):
-                        raise TypeError(f"cannot unpack a {type(tpar).__name__}")
+                        raise StubError(f"cannot unpack a {type(tpar).__name__}")
                     return True
 
             # TODO(jorenham): also unpack existing (legacy) TypeVarTuple names
