@@ -797,10 +797,15 @@ class StubTransformer(cst.CSTTransformer):
         return updated_node.with_changes(body=new_body)
 
 
-def transform_module(original: cst.Module, /, target: PythonVersion) -> cst.Module:
+def transform_module(
+    original: cst.Module,
+    /,
+    filename: str = "<stdin>",
+    target: PythonVersion = PythonVersion.PY310,
+) -> cst.Module:
     wrapper = cst.MetadataWrapper(original)
 
-    visitor = StubVisitor()
+    visitor = StubVisitor(filename=filename)
     _ = wrapper.visit(visitor)
 
     transformer = StubTransformer(visitor, target=target)
@@ -810,7 +815,11 @@ def transform_module(original: cst.Module, /, target: PythonVersion) -> cst.Modu
 def transform_source(
     source: str,
     /,
-    *,
+    filename: str = "<stdin>",
     target: PythonVersion = PythonVersion.PY310,
 ) -> str:
-    return transform_module(cst.parse_module(source), target=target).code
+    return transform_module(
+        cst.parse_module(source),
+        filename=filename,
+        target=target,
+    ).code

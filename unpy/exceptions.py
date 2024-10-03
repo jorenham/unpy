@@ -1,5 +1,9 @@
-__all__ = ("StubError",)
+__all__ = ("StubError", "StubSyntaxError")
 
 
-class StubError(TypeError):
+class StubError(Exception):
+    pass
+
+
+class StubSyntaxError(SyntaxError):
     pass
