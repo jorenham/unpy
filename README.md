@@ -371,7 +371,7 @@ potential goals of `unpy`:
 - [ ] `@sealed` types (jorenham/unpy#42)
 - [ ] Unified type-ignore comments (jorenham/unpy#68)
 - [ ] Set-based `Literal` syntax (jorenham/unpy#76)
-- [ ] Reusable method signature definitions
+- [ ] Reusable method signature definitions (jorenham/unpy#97, jorenham/unpy#98)
 - [ ] Type-mappings, a DRY alternative to `@overload`
 - [ ] Intersection types (as implemented in [basedmypy][BMP-ISEC])
 - [ ] Higher-kinded types (see python/typing#548)
