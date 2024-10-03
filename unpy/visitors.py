@@ -426,6 +426,8 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
 
     @override
     def visit_Module(self, /, node: cst.Module) -> None:
+        node.validate_types_deep()
+
         scope = self.get_metadata(cst_meta.ScopeProvider, node)
         assert isinstance(scope, cst_meta.Scope)
         self._global_scope = scope.globals
