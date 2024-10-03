@@ -167,8 +167,10 @@ def build(
 ) -> None:
     assert not version
 
+    filename = "<stdin>" if str(source) == "-" else str(source.resolve())
+
     source_str = _read_source(source)
-    output_str = transform_source(source_str, target=target.version)
+    output_str = transform_source(source_str, filename=filename, target=target.version)
 
     if diff:
         _echo_diff(str(source), source_str, str(output), output_str)

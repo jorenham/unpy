@@ -2,7 +2,7 @@
 
 import libcst as cst
 import pytest
-from unpy.exceptions import StubError
+from unpy.exceptions import StubError, StubSyntaxError
 from unpy.visitors import StubVisitor
 
 
@@ -39,7 +39,7 @@ def test_illegal_future_import():
     ],
 )
 def test_illegal_stringified_annotations(source: str):
-    with pytest.raises(StubError):
+    with pytest.raises(StubSyntaxError):
         _visit(source)
 
 
@@ -51,7 +51,7 @@ def test_illegal_stringified_annotations(source: str):
     ],
 )
 def test_illegal_special_functions_at_module_lvl(source: str):
-    with pytest.raises(StubError):
+    with pytest.raises(StubSyntaxError):
         _visit(source)
 
 
