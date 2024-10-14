@@ -26,7 +26,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "libcst>=1.4.0,<2",
+    "libcst>=1.5.0,<2",
     "typer-slim>=0.12.5,<1",
 ]
 
