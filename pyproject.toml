@@ -67,13 +67,13 @@ packages = ["unpy"]
 
 [tool.uv]
 dev-dependencies = [
-    "basedmypy>=2.6.0,<3",
-    "basedpyright>=1.18.4,<2",
-    "codespell>=2.3.0,<3",
-    "pre-commit>=4.0.1,<5",
-    "pytest>=8.3.3,<9",
-    "ruff>=0.6.9,<1",
-    "tox>=4.21.2,<5",
+    "basedmypy>=2.6.0",
+    "basedpyright>=1.19.1",
+    "codespell>=2.3.0",
+    "pre-commit>=4.0.1",
+    "pytest>=8.3.3",
+    "ruff>=0.7.1",
+    "tox>=4.23.2",
 ]
 
 [tool.mypy]
@@ -181,7 +181,6 @@ max-statements = 100
 
 [tool.tox]
 isolated_build = true
-requires = ["tox>=4.21.2"]
 env_list = ["3.12", "3.13", "precommit"]
 
 [tool.tox.env_run_base]
