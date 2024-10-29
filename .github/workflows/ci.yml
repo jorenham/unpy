@@ -11,9 +11,6 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  VERSION_UV: "0.4.21"
-
 jobs:
   lint:
     timeout-minutes: 5
@@ -27,7 +24,6 @@ jobs:
         uses: astral-sh/setup-uv@v3
         with:
           enable-cache: true
-          version: ${{ env.VERSION_UV }}
 
       - name: uv sync
         run: uv sync --frozen
@@ -67,7 +63,6 @@ jobs:
       - name: setup uv
         uses: astral-sh/setup-uv@v3
         with:
-          version: ${{ env.VERSION_UV }}
           enable-cache: true
 
       - name: setup python
