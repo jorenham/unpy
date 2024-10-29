@@ -317,6 +317,7 @@ def test_import_access_package_attr_attr() -> None:
 
 # baseclasses
 
+
 def test_baseclasses_single() -> None:
     visitor = _visit(
         "from typing import Protocol as Interface",
@@ -327,6 +328,7 @@ def test_baseclasses_single() -> None:
 
 # type params
 # TODO
+
 
 # nested ClassVar and Final
 def test_nested_classvar_final() -> None:

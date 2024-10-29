@@ -228,7 +228,7 @@ class StubVisitor(cst.CSTVisitor):  # noqa: PLR0904
         alias: str | None = None,
     ) -> str:
         # this `str.removesuffix` avoids a double `.` in case of `from . import name`
-        fqn = f"{module.removesuffix(".")}.{name}" if module else name
+        fqn = f"{module.removesuffix('.')}.{name}" if module else name
 
         if fqn.startswith("__future__"):
             raise StubError("__future__ imports are useless in stubs")
