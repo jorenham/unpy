@@ -85,7 +85,7 @@ class VersionIV:
 
     @override
     def __repr__(self, /) -> str:
-        return f"{type(self).__name__}({self.a}, {self.stop or "..."})"
+        return f"{type(self).__name__}({self.a}, {self.stop or '...'})"
 
     @override
     def __str__(self, /) -> str:
