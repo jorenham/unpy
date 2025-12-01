@@ -18,7 +18,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: Install uv
         uses: astral-sh/setup-uv@v7
@@ -41,7 +41,7 @@ jobs:
         run: uv run basedpyright
 
       - name: markdownlint
-        uses: DavidAnson/markdownlint-cli2-action@v20
+        uses: DavidAnson/markdownlint-cli2-action@v21
         with:
           config: ".markdownlint.yaml"
           globs: "*.md"
@@ -58,7 +58,7 @@ jobs:
 
     steps:
       - name: checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
 
       - name: setup uv
         uses: astral-sh/setup-uv@v7
